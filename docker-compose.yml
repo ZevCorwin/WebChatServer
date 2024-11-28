@@ -1,0 +1,52 @@
+version: '3.8'
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: chatapp
+    ports:
+      - "8080:8080"  # Kết nối tới ứng dụng chính
+    depends_on:
+      - mongo
+      - redis
+    env_file:
+      - .env.${APP_ENV}  # Sử dụng file .env tương ứng với môi trường
+    environment:
+      - MONGO_URI=mongodb://mongo:${DB_PORT}/${DB_NAME}
+      - REDIS_HOST=redis
+    command: ./main
+
+  mongo:
+    image: mongo:latest
+    container_name: mongodb
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo_data:/data/db
+
+  redis:
+    image: redis:latest
+    container_name: redisdb
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+
+  client:
+    build:
+      context: ../chat-app-client
+    container_name: chatapp-react-client
+    ports:
+      - "3000:3000"
+    environment:
+      - REACT_APP_API_BASE_URL=https://app:8080
+      - REACT_APP_WEBSOCKET_URL=ws://app:8080/ws
+    stdin_open: true
+    tty: true
+    depends_on:
+      - app
+volumes:
+  mongo_data:
+  redis_data:
