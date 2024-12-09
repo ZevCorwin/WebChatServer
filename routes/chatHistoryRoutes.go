@@ -1,15 +1,15 @@
 package routes
 
 import (
+	"chat-app-backend/config"
 	"chat-app-backend/controllers"
 	"chat-app-backend/services"
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/mongo"
 )
 
-func SetupChatHistoryRoutes(router *gin.Engine, db *mongo.Database) {
+func SetupChatHistoryRoutes(router *gin.Engine) {
 	// Tạo service và controller
-	chatHistoryService := services.NewChatHistoryService(db)
+	chatHistoryService := services.NewChatHistoryService(config.DB)
 	chatHistoryController := controllers.NewChatHistoryController(chatHistoryService)
 
 	chatHistory := router.Group("/api/chatHistory")

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"chat-app-backend/config"
 	"chat-app-backend/models"
 	"context"
 	"go.mongodb.org/mongo-driver/bson"
@@ -13,8 +14,8 @@ type ChatHistoryService struct {
 	DB *mongo.Database
 }
 
-func NewChatHistoryService(db *mongo.Database) *ChatHistoryService {
-	return &ChatHistoryService{DB: db}
+func NewChatHistoryService() *ChatHistoryService {
+	return &ChatHistoryService{DB: config.DB}
 }
 
 // Lấy lịch sử chat
@@ -73,6 +74,9 @@ func (chs *ChatHistoryService) GetChatHistoryByUserID(userID primitive.ObjectID)
 			return nil, err
 		}
 		channels = append(channels, channel)
+	}
+	if len(channels) == 0 {
+		return []models.Channel{}, nil
 	}
 
 	return channels, nil

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"chat-app-backend/config"
 	"chat-app-backend/models"
 	"chat-app-backend/utils"
 	"context"
@@ -22,10 +23,8 @@ type UserService struct {
 }
 
 // NewUserService khởi tạo một UserService mới
-func NewUserService(db *mongo.Database) *UserService {
-	return &UserService{
-		DB: db,
-	}
+func NewUserService() *UserService {
+	return &UserService{DB: config.DB}
 }
 
 func (us *UserService) CheckPasswordHash(password, hash string) bool {

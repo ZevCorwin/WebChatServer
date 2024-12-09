@@ -1,15 +1,15 @@
 package routes
 
 import (
+	"chat-app-backend/config"
 	"chat-app-backend/controllers"
 	"chat-app-backend/services"
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/mongo"
 )
 
 // SetupFriendRoutes sets up friend-related routes.
-func SetupFriendRoutes(router *gin.Engine, db *mongo.Database) {
-	friendService := services.NewFriendService(db)
+func SetupFriendRoutes(router *gin.Engine) {
+	friendService := services.NewFriendService(config.DB)
 	friendController := controllers.NewFriendController(friendService)
 
 	friendRoute := router.Group("/friends")

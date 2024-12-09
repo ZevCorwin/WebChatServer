@@ -1,6 +1,7 @@
 package services
 
 import (
+	"chat-app-backend/config"
 	"chat-app-backend/models"
 	"context"
 	"errors"
@@ -16,8 +17,8 @@ type ChannelService struct {
 	DB *mongo.Database
 }
 
-func NewChannelService(db *mongo.Database) *ChannelService {
-	return &ChannelService{DB: db}
+func NewChannelService() *ChannelService {
+	return &ChannelService{DB: config.DB}
 }
 
 // CreateChannel Xử lý tạo kênh

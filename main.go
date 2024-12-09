@@ -11,14 +11,14 @@ import (
 func main() {
 	// Kết nối cơ sở dữ liệu
 	// Mới
-	//config.InitDB()
-	db := config.ConnectDB()
+	config.InitDB()
+	//db := config.DB
 
 	// Nạp cấu hình
 	cfg := config.LoadConfig()
 
 	// Khởi tạo router với tất cả routes
-	router := routes.SetupRouter(db)
+	router := routes.SetupRouter()
 	router.Static("/uploads", "./uploads")
 
 	router.Use(cors.New(cors.Config{

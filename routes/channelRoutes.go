@@ -1,16 +1,16 @@
 package routes
 
 import (
+	"chat-app-backend/config"
 	"chat-app-backend/controllers"
 	"chat-app-backend/middleware"
 	"chat-app-backend/services"
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/mongo"
 )
 
-func SetupChannelRoutes(router *gin.Engine, db *mongo.Database) {
+func SetupChannelRoutes(router *gin.Engine) {
 	// Tạo một channel controller mới
-	channelService := services.NewChannelService(db)
+	channelService := services.NewChannelService(config.DB)
 	channelController := controllers.NewChannelController(channelService)
 
 	// Tạo một channel service mới

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"chat-app-backend/config"
 	"chat-app-backend/models"
 	"context"
 	"errors"
@@ -16,8 +17,8 @@ type MessageService struct {
 	ChannelService *ChannelService
 }
 
-func NewMessageService(db *mongo.Database, cs *ChannelService) *MessageService {
-	return &MessageService{DB: db, ChannelService: cs}
+func NewMessageService(cs *ChannelService) *MessageService {
+	return &MessageService{DB: config.DB, ChannelService: cs}
 }
 
 func (ms *MessageService) SendMessage(channelID primitive.ObjectID, senderID primitive.ObjectID, content string, messageType models.MessageType) (*models.Message, error) {

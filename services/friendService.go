@@ -1,6 +1,7 @@
 package services
 
 import (
+	"chat-app-backend/config"
 	"chat-app-backend/models"
 	"context"
 	"errors"
@@ -15,8 +16,8 @@ type FriendService struct {
 	DB *mongo.Database
 }
 
-func NewFriendService(db *mongo.Database) *FriendService {
-	return &FriendService{DB: db}
+func NewFriendService() *FriendService {
+	return &FriendService{DB: config.DB}
 }
 
 // Gửi yêu cầu kết bạn

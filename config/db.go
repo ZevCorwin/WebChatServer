@@ -10,13 +10,13 @@ import (
 	"time"
 )
 
-//// Mới
-//var DB *mongo.Database
-//
-//// Mới
-//func InitDB() {
-//	DB = ConnectDB()
-//}
+// Mới
+var DB *mongo.Database
+
+// Mới
+func InitDB() {
+	DB = ConnectDB()
+}
 
 // ConnectDB kết nối tới MongoDB và trả về một đối tượng *mongo.Database
 func ConnectDB() *mongo.Database {
