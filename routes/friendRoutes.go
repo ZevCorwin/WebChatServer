@@ -1,7 +1,6 @@
 package routes
 
 import (
-	"chat-app-backend/config"
 	"chat-app-backend/controllers"
 	"chat-app-backend/services"
 	"github.com/gin-gonic/gin"
@@ -9,7 +8,7 @@ import (
 
 // SetupFriendRoutes sets up friend-related routes.
 func SetupFriendRoutes(router *gin.Engine) {
-	friendService := services.NewFriendService(config.DB)
+	friendService := services.NewFriendService()
 	friendController := controllers.NewFriendController(friendService)
 
 	friendRoute := router.Group("/friends")

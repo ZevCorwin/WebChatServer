@@ -38,7 +38,7 @@ func (cs *ChannelService) CreateChannel(name string, channelType models.ChannelT
 		return nil, errors.New("group channel requires at least 3 members")
 	}
 
-	userService := NewUserService(cs.DB)
+	userService := NewUserService()
 	var channelMembers []models.ChannelMember
 	var memberNames []string
 	var channelAvatar string

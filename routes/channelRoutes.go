@@ -1,7 +1,6 @@
 package routes
 
 import (
-	"chat-app-backend/config"
 	"chat-app-backend/controllers"
 	"chat-app-backend/middleware"
 	"chat-app-backend/services"
@@ -10,7 +9,7 @@ import (
 
 func SetupChannelRoutes(router *gin.Engine) {
 	// Tạo một channel controller mới
-	channelService := services.NewChannelService(config.DB)
+	channelService := services.NewChannelService()
 	channelController := controllers.NewChannelController(channelService)
 
 	// Tạo một channel service mới

@@ -1,7 +1,6 @@
 package routes
 
 import (
-	"chat-app-backend/config"
 	"chat-app-backend/controllers"
 	"chat-app-backend/services"
 
@@ -12,7 +11,7 @@ func SetupMessageRoutes(router *gin.Engine) {
 
 	// Khởi tạo services
 	channelService := &services.ChannelService{} // Giả sử bạn đã khởi tạo ChannelService
-	messageService := services.NewMessageService(config.DB, channelService)
+	messageService := services.NewMessageService(channelService)
 
 	// Khởi tạo controller
 	messageController := controllers.NewMessageController(

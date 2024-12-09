@@ -1,7 +1,6 @@
 package routes
 
 import (
-	"chat-app-backend/config"
 	"chat-app-backend/controllers"
 	"chat-app-backend/middleware"
 	"chat-app-backend/services"
@@ -10,7 +9,7 @@ import (
 
 // SetupUserRoutes cấu hình các routes liên quan đến người dùng
 func SetupUserRoutes(router *gin.Engine) {
-	userService := services.NewUserService(config.DB)
+	userService := services.NewUserService()
 	userController := controllers.NewUserController(userService)
 
 	// Đăng ký routes
