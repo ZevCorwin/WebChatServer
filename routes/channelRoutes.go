@@ -15,7 +15,7 @@ func SetupChannelRoutes(router *gin.Engine) {
 	// Tạo một channel service mới
 
 	// Group routes cho channels
-	channelRoutes := router.Group("/api/channels", middleware.CurrentUserMiddleware())
+	channelRoutes := router.Group("/api/channels", middleware.AuthMiddleware(), middleware.CurrentUserMiddleware())
 	{
 		channelRoutes.POST("", channelController.CreateChannelHandler)
 		channelRoutes.PUT("/:channelId/members/:memberId", channelController.AddMemberHandler)

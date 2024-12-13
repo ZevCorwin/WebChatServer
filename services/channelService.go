@@ -5,6 +5,7 @@ import (
 	"chat-app-backend/models"
 	"context"
 	"errors"
+	"fmt"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -434,4 +435,32 @@ func (cs *ChannelService) GetChannelsByUserID(userID primitive.ObjectID) ([]mode
 	}
 
 	return channels, nil
+}
+
+func (cs *ChannelService) FindOrCreatePrivateChannel(member1 string, member2 string) (*models.Channel, error) {
+	id1, err := primitive.ObjectIDFromHex(member1)
+	if err != nil {
+		return nil, fmt.Errorf("Invalid member1 ID")
+	}
+	id2, err := primitive.ObjectIDFromHex(member2)
+	if err != nil {
+		return nil, fmt.Errorf("Invalid member2 ID")
+	}
+
+	collection := cs.DB.Collection("channels")
+	filter := bson.M{
+		"channelType": models.ChannelTypePrivate,
+		"members": bson.M{
+			"$size": 2,
+			"$all":  []primitive.ObjectID{id1, id2},
+		},
+	}
+
+	var channel models.Channel
+	err = collection.FindOne(context.TODO(), filter).Decode(&channel)
+	if err == mongo.ErrNoDocuments {
+		return cs.CreateChannel("Private Channel", models.ChannelTypePrivate, []primitive.ObjectID{id1, id2}, false)
+	}
+
+	return &channel, err
 }

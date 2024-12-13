@@ -3,10 +3,7 @@ package controllers
 import (
 	"chat-app-backend/models"
 	"chat-app-backend/services"
-	"context"
-	"fmt"
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"net/http"
 
@@ -379,51 +376,15 @@ func (cc *ChannelController) GetUserChannelsHandler(c *gin.Context) {
 func (cc *ChannelController) FindPrivateChannelHandler(ctx *gin.Context) {
 	member1 := ctx.Query("member1")
 	member2 := ctx.Query("member2")
-	fmt.Println("member1:", member1, "member2:", member2)
 
-	// Chuyển đổi ID thành ObjectID
-	id1, err := primitive.ObjectIDFromHex(member1)
-	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid member1 ID"})
-		return
-	}
-	id2, err := primitive.ObjectIDFromHex(member2)
-	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid member2 ID"})
-		return
-	}
-
-	// Tìm kênh
-	collection := cc.ChannelService.DB.Collection("channels")
-	// Tìm kênh với điều kiện chính xác
-	filter := bson.M{
-		"channelType": models.ChannelTypePrivate,
-		"members": bson.M{
-			"$size": 2, // Đảm bảo chỉ có 2 thành viên trong kênh
-			"$all": []bson.M{
-				{"memberID": id1},
-				{"memberID": id2},
-			},
-		},
-	}
-
-	var channel models.Channel
-	err = collection.FindOne(context.TODO(), filter).Decode(&channel)
+	channel, err := cc.ChannelService.FindOrCreatePrivateChannel(member1, member2)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
-			// Nếu không tìm thấy kênh, tạo kênh mới
-			// Gọi hàm tạo kênh mới
-			newChannel, createErr := cc.ChannelService.CreateChannel("Private Channel", models.ChannelTypePrivate, []primitive.ObjectID{id1, id2}, false)
-			if createErr != nil {
-				ctx.JSON(http.StatusInternalServerError, gin.H{"error": createErr.Error()})
-				return
-			}
-			ctx.JSON(http.StatusCreated, newChannel) // Trả về kênh mới đã tạo
-			return
-		} else {
 			ctx.JSON(http.StatusNotFound, gin.H{"error": "Channel not found"})
-			return
+		} else {
+			ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		}
+		return
 	}
 
 	ctx.JSON(http.StatusOK, channel)
