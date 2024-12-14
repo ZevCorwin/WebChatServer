@@ -321,6 +321,9 @@ func (cs *ChannelService) CheckMemberRole(channel *models.Channel, memberID prim
 
 // Lấy thông tin kênh
 func (cs *ChannelService) GetChannel(channelId primitive.ObjectID) (*models.Channel, error) {
+	if cs.DB == nil {
+		return nil, errors.New("DB not initialized")
+	}
 	collection := cs.DB.Collection("channels")
 	var channel models.Channel
 	err := collection.FindOne(context.TODO(), bson.M{"_id": channelId}).Decode(&channel)
@@ -452,12 +455,21 @@ func (cs *ChannelService) FindOrCreatePrivateChannel(member1 string, member2 str
 		"channelType": models.ChannelTypePrivate,
 		"members": bson.M{
 			"$size": 2,
-			"$all":  []primitive.ObjectID{id1, id2},
+		},
+		"members.memberID": bson.M{
+			"$all": []primitive.ObjectID{id1, id2},
 		},
 	}
 
+	log.Println(filter)
+
 	var channel models.Channel
+
+	log.Println(channel)
 	err = collection.FindOne(context.TODO(), filter).Decode(&channel)
+
+	log.Println(err)
+
 	if err == mongo.ErrNoDocuments {
 		return cs.CreateChannel("Private Channel", models.ChannelTypePrivate, []primitive.ObjectID{id1, id2}, false)
 	}
