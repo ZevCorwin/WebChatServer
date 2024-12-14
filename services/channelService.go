@@ -456,8 +456,17 @@ func (cs *ChannelService) FindOrCreatePrivateChannel(member1 string, member2 str
 		},
 	}
 
+	log.Println(filter)
+
 	var channel models.Channel
+
+	log.Println(channel)
 	err = collection.FindOne(context.TODO(), filter).Decode(&channel)
+
+	log.Println(err)
+	log.Printf("Filter: %+v\n", filter)
+	log.Printf("Member IDs: id1=%s, id2=%s\n", id1.Hex(), id2.Hex())
+
 	if err == mongo.ErrNoDocuments {
 		return cs.CreateChannel("Private Channel", models.ChannelTypePrivate, []primitive.ObjectID{id1, id2}, false)
 	}
