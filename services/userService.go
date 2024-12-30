@@ -60,7 +60,7 @@ func (us *UserService) Register(user models.User) (*models.User, error) {
 
 	// Gán ảnh đại diện mặc định nếu không có
 	if user.Avatar == "" {
-		user.Avatar = "/uploads/dealineDi.jpg" // Đường dẫn ảnh mặc định
+		user.Avatar = "/uploads/deadlineDi.jpg" // Đường dẫn ảnh mặc định
 	}
 
 	// Chèn người dùng mới vào cơ sở dữ liệu

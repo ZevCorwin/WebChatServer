@@ -11,7 +11,7 @@ func SetupMessageRoutes(router *gin.Engine) {
 
 	// Khởi tạo services
 	channelService := &services.ChannelService{} // Giả sử bạn đã khởi tạo ChannelService
-	messageService := services.NewMessageService(channelService)
+	messageService := services.NewMessageService()
 
 	// Khởi tạo controller
 	messageController := controllers.NewMessageController(

@@ -13,15 +13,22 @@ import (
 )
 
 type MessageService struct {
-	DB             *mongo.Database
-	ChannelService *ChannelService
+	DB                 *mongo.Database
+	ChannelService     *ChannelService
+	UserChannelService *UserChannelService
+	ChatHistoryService *ChatHistoryService
 }
 
-func NewMessageService(cs *ChannelService) *MessageService {
-	return &MessageService{DB: config.DB, ChannelService: cs}
+func NewMessageService() *MessageService {
+	return &MessageService{
+		DB:                 config.DB,
+		ChannelService:     NewChannelService(),
+		UserChannelService: NewUserChannelService(),
+		ChatHistoryService: NewChatHistoryService(),
+	}
 }
 
-func (ms *MessageService) SendMessage(channelID primitive.ObjectID, senderID primitive.ObjectID, content string, messageType models.MessageType) (*models.Message, error) {
+func (ms *MessageService) SendMessage(channelID, senderID primitive.ObjectID, content string, messageType models.MessageType) (*models.Message, error) {
 	// Sử dụng ChannelService để lấy thông tin kênh
 	channel, err := ms.ChannelService.GetChannel(channelID)
 	if err != nil {
@@ -105,6 +112,16 @@ func (ms *MessageService) SendMessage(channelID primitive.ObjectID, senderID pri
 	update := bson.M{"$push": bson.M{"message": message.ID}}
 	opts := options.FindOneAndUpdate().SetUpsert(true)
 	err = chatHistoryCollection.FindOneAndUpdate(context.Background(), filter, update, opts).Err()
+	if err != nil {
+		return nil, err
+	}
+
+	err = ms.ChatHistoryService.UpdateLastActive(channelID, message.Timestamp)
+	if err != nil {
+		return nil, err
+	}
+
+	err = ms.UserChannelService.UpdateLastActive(senderID, channelID)
 	if err != nil {
 		return nil, err
 	}
