@@ -7,7 +7,6 @@ import (
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
-	"log"
 	"sort"
 	"time"
 )
@@ -21,42 +20,96 @@ func NewChatHistoryService() *ChatHistoryService {
 }
 
 // Lấy lịch sử chat
-func (chs *ChatHistoryService) GetChatHistory(channelID primitive.ObjectID) ([]models.Message, error) {
+func (chs *ChatHistoryService) GetChatHistory(channelID primitive.ObjectID, userID primitive.ObjectID) (map[string]interface{}, error) {
 	chatHistoryCollection := chs.DB.Collection("chathistory")
+	messagesCollection := chs.DB.Collection("messages")
+	userCollection := chs.DB.Collection("users")
+	channelsCollection := chs.DB.Collection("channels")
+
+	// Kết quả trả về
+	result := make(map[string]interface{})
+
+	// Lấy thông tin kênh
+	var channel models.Channel
+	err := channelsCollection.FindOne(context.Background(), bson.M{"_id": channelID}).Decode(&channel)
+	if err != nil {
+		return nil, err
+	}
+
+	if channel.ChannelType == "Private" {
+		// Lấy ID của đối phương bằng $ne
+		var otherUser models.User
+		err := userCollection.FindOne(context.Background(), bson.M{
+			"_id": bson.M{"$ne": userID},
+		}).Decode(&otherUser)
+		if err != nil {
+			return nil, err
+		}
+
+		// Chỉ trả về userName và userAvatar
+		result["userName"] = otherUser.Name
+		result["userAvatar"] = "http://localhost:8080" + otherUser.Avatar
+	} else {
+		// Trả về channelName và channelAvatar cho kênh nhóm
+		result["channelName"] = channel.ChannelName
+		result["channelAvatar"] = "http://localhost:8080" + channel.Avatar
+	}
+
+	// Lấy lịch sử tin nhắn
 	var chatHistory models.ChatHistory
-	err := chatHistoryCollection.FindOne(context.Background(), bson.M{"channelID": channelID}).Decode(&chatHistory)
+	err = chatHistoryCollection.FindOne(context.Background(), bson.M{"channelID": channelID}).Decode(&chatHistory)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {
-			return []models.Message{}, nil
+			result["messages"] = []map[string]interface{}{}
+			return result, nil
 		}
 		return nil, err
 	}
 
 	// Lấy danh sách tin nhắn
-	messagesCollection := chs.DB.Collection("messages")
 	filter := bson.M{"_id": bson.M{"$in": chatHistory.Message}}
 	cursor, err := messagesCollection.Find(context.Background(), filter)
 	if err != nil {
 		return nil, err
 	}
-	ctx := context.Background()
-	defer func(cursor *mongo.Cursor, ctx context.Context) {
-		err := cursor.Close(ctx)
-		if err != nil {
-			log.Println("Lỗi khi đóng cursor:", err)
-		}
-	}(cursor, ctx)
+	defer cursor.Close(context.Background())
 
-	var messages []models.Message
+	var messages []map[string]interface{}
 	for cursor.Next(context.Background()) {
 		var msg models.Message
 		if err := cursor.Decode(&msg); err != nil {
 			return nil, err
 		}
-		messages = append(messages, msg)
+
+		// Lấy thông tin người gửi từ userCollection
+		var sender models.User
+		err := userCollection.FindOne(context.Background(), bson.M{"_id": msg.SenderID}).Decode(&sender)
+		if err != nil {
+			if err == mongo.ErrNoDocuments {
+				// Nếu không tìm thấy user, bỏ qua tin nhắn hoặc xử lý mặc định
+				continue
+			}
+			return nil, err
+		}
+
+		// Thêm thông tin tin nhắn vào kết quả
+		messages = append(messages, map[string]interface{}{
+			"id":           msg.ID,
+			"content":      msg.Content,
+			"timestamp":    msg.Timestamp,
+			"messageType":  msg.MessageType,
+			"senderId":     msg.SenderID,
+			"senderName":   sender.Name,
+			"senderAvatar": "http://localhost:8080" + sender.Avatar,
+			"status":       msg.Status,
+			"recalled":     msg.Recalled,
+			"url":          msg.URL,
+			"fileId":       msg.FileID,
+		})
 	}
 
-	return messages, nil
+	result["messages"] = messages
+	return result, nil
 }
 
 // Lấy lịch sử kênh chat của người dùng
@@ -65,6 +118,7 @@ func (chs *ChatHistoryService) GetChatHistoryByUserID(userID primitive.ObjectID)
 	chatHistoryCollection := chs.DB.Collection("chathistory")
 	channelsCollection := chs.DB.Collection("channels")
 	messagesCollection := chs.DB.Collection("messages")
+	userCollection := chs.DB.Collection("users")
 
 	// Lấy danh sách các kênh của user
 	filter := bson.M{"userID": userID}
@@ -98,6 +152,13 @@ func (chs *ChatHistoryService) GetChatHistoryByUserID(userID primitive.ObjectID)
 			return nil, err
 		}
 
+		var user models.User
+		userFilter := bson.M{"_id": bson.M{"$ne": userChannel.UserID}}
+		err = userCollection.FindOne(context.Background(), userFilter).Decode(&user)
+		if err != nil {
+			return nil, err
+		}
+
 		// Lấy tin nhắn cuối cùng trong mảng message
 		var lastMessageContent string
 		if len(chatHistoryRecord.Message) > 0 {
@@ -114,11 +175,13 @@ func (chs *ChatHistoryService) GetChatHistoryByUserID(userID primitive.ObjectID)
 
 		// Tạo đối tượng trả về
 		chatItem := map[string]interface{}{
-			"channelID":   userChannel.ChannelID,
-			"avatar":      baseUrl + channel.Avatar,
-			"channelName": channel.ChannelName,
-			"lastMessage": lastMessageContent,
-			"lastActive":  chatHistoryRecord.LastActive,
+			"channelID":     userChannel.ChannelID,
+			"channelAvatar": baseUrl + channel.Avatar,
+			"channelName":   channel.ChannelName,
+			"userName":      user.Name,
+			"userAvatar":    user.Avatar,
+			"lastMessage":   lastMessageContent,
+			"lastActive":    chatHistoryRecord.LastActive,
 		}
 
 		chatHistory = append(chatHistory, chatItem)

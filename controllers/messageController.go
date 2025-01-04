@@ -3,11 +3,15 @@ package controllers
 import (
 	"chat-app-backend/models"
 	"chat-app-backend/services"
-	"github.com/gorilla/websocket"
-	"net/http"
-
+	"context"
 	"github.com/gin-gonic/gin"
+	"github.com/goccy/go-json"
+	"github.com/gorilla/websocket"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"log"
+	"net/http"
+	"sync"
 )
 
 // Định nghĩa upgrader cho WebSocket
@@ -27,27 +31,124 @@ func NewMessageController(messageService *services.MessageService, channelServic
 }
 
 // HandleWebSocket xử lý kết nối WebSocket
+var (
+	clients   = make(map[*websocket.Conn]bool) // Lưu trữ danh sách kết nối
+	broadcast = make(chan []byte)              // Kênh để broadcast tin nhắn
+	mutex     sync.Mutex                       // Đảm bảo thread-safe
+)
+
+// Goroutine để gửi tin nhắn đến tất cả client
+func init() {
+	go func() {
+		for {
+			message := <-broadcast
+			mutex.Lock()
+			for client := range clients {
+				err := client.WriteMessage(websocket.TextMessage, message)
+				if err != nil {
+					client.Close()
+					delete(clients, client)
+				}
+			}
+			mutex.Unlock()
+		}
+	}()
+}
+
 func (mc *MessageController) HandleWebSocket(ctx *gin.Context) {
-	// Nâng cấp kết nối HTTP lên WebSocket
 	conn, err := upgrader.Upgrade(ctx.Writer, ctx.Request, nil)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upgrade to WebSocket"})
 		return
 	}
-	defer conn.Close() // Đóng kết nối khi xong
+	defer conn.Close()
 
-	// Lắng nghe và phản hồi tin nhắn
+	// Thêm kết nối WebSocket vào danh sách clients
+	mutex.Lock()
+	clients[conn] = true
+	mutex.Unlock()
+
 	for {
-		_, msg, err := conn.ReadMessage() // Đọc tin nhắn từ client
+		// Đọc tin nhắn từ WebSocket
+		_, msg, err := conn.ReadMessage()
 		if err != nil {
-			break // Ngắt vòng lặp nếu xảy ra lỗi
-		}
-
-		// Phản hồi lại tin nhắn (echo)
-		err = conn.WriteMessage(websocket.TextMessage, msg)
-		if err != nil {
+			mutex.Lock()
+			delete(clients, conn)
+			mutex.Unlock()
 			break
 		}
+
+		// Giải mã tin nhắn nhận được
+		var incomingMessage struct {
+			ChannelID   string `json:"channelId"`
+			SenderID    string `json:"senderId"`
+			Content     string `json:"content"`
+			MessageType string `json:"messageType"`
+		}
+		if err := json.Unmarshal(msg, &incomingMessage); err != nil {
+			log.Printf("Lỗi giải mã tin nhắn: %v", err)
+			continue
+		}
+
+		// Chuyển đổi ChannelID và SenderID sang ObjectID
+		channelID, err := primitive.ObjectIDFromHex(incomingMessage.ChannelID)
+		if err != nil {
+			log.Printf("Lỗi chuyển đổi ChannelID: %v", err)
+			continue
+		}
+
+		senderID, err := primitive.ObjectIDFromHex(incomingMessage.SenderID)
+		if err != nil {
+			log.Printf("Lỗi chuyển đổi SenderID: %v", err)
+			continue
+		}
+
+		// Sử dụng MessageService để gửi tin nhắn và lấy dữ liệu phản hồi
+		message, err := mc.MessageService.SendMessage(
+			channelID,
+			senderID,
+			incomingMessage.Content,
+			models.MessageType(incomingMessage.MessageType),
+		)
+		if err != nil {
+			log.Printf("Lỗi gửi tin nhắn: %v", err)
+			continue
+		}
+
+		// Truy vấn thông tin người gửi để tạo phản hồi nhất quán
+		var sender struct {
+			Name   string `bson:"name"`
+			Avatar string `bson:"avatar"`
+		}
+		err = mc.MessageService.DB.Collection("users").FindOne(
+			context.TODO(),
+			bson.M{"_id": senderID},
+		).Decode(&sender)
+		if err != nil {
+			log.Printf("Lỗi truy vấn thông tin người gửi: %v", err)
+			continue
+		}
+
+		// Chuẩn hóa phản hồi
+		response := map[string]interface{}{
+			"id":           message.ID.Hex(),
+			"content":      message.Content,
+			"timestamp":    message.Timestamp,
+			"messageType":  message.MessageType,
+			"senderId":     incomingMessage.SenderID,
+			"senderName":   sender.Name,
+			"senderAvatar": "http://localhost:8080" + sender.Avatar,
+			"status":       message.Status,
+			"recalled":     message.Recalled,
+			"url":          message.URL,
+			"fileId":       message.FileID,
+		}
+
+		// Broadcast tin nhắn đến tất cả client
+		broadcast <- func() []byte {
+			resp, _ := json.Marshal(response)
+			return resp
+		}()
 	}
 }
 
@@ -67,6 +168,7 @@ func (mc *MessageController) SendMessage(ctx *gin.Context) {
 
 	channelID, err := primitive.ObjectIDFromHex(request.ChannelID)
 	if err != nil {
+		log.Print(request.ChannelID)
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid channel ID"})
 		return
 	}

@@ -18,13 +18,20 @@ func NewChatHistoryController(service *services.ChatHistoryService) *ChatHistory
 
 func (chc *ChatHistoryController) GetChatHistory(ctx *gin.Context) {
 	channelID := ctx.Param("channelID")
-	id, err := primitive.ObjectIDFromHex(channelID)
-	if err != nil {
+	userID := ctx.Param("userID")
+	channelObjectID, err1 := primitive.ObjectIDFromHex(channelID)
+	userObjectID, err2 := primitive.ObjectIDFromHex(userID)
+	if err1 != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid channel ID"})
 		return
 	}
 
-	message, err := chc.ChatHistoryService.GetChatHistory(id)
+	if err2 != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
+		return
+	}
+
+	message, err := chc.ChatHistoryService.GetChatHistory(channelObjectID, userObjectID)
 	if err != nil {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

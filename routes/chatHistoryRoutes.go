@@ -13,7 +13,7 @@ func SetupChatHistoryRoutes(router *gin.Engine) {
 
 	chatHistory := router.Group("/api/chatHistory")
 	{
-		chatHistory.GET("/:channelID", chatHistoryController.GetChatHistory)
+		chatHistory.GET("/:channelID/:userID", chatHistoryController.GetChatHistory)
 		chatHistory.GET("/user/:userID", chatHistoryController.GetChatHistoryByUserID)
 		chatHistory.DELETE("/:channelID", chatHistoryController.DeleteChatHistory)
 	}

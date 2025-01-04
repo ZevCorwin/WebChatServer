@@ -450,9 +450,11 @@ func (cs *ChannelService) FindOrCreatePrivateChannel(member1 string, member2 str
 	collection := cs.DB.Collection("channels")
 	filter := bson.M{
 		"channelType": models.ChannelTypePrivate,
-		"members": bson.M{
-			"$size": 2,
-			"$all":  []primitive.ObjectID{id1, id2},
+		"members.memberID": bson.M{
+			"$all": []primitive.ObjectID{id1, id2},
+		},
+		"$expr": bson.M{
+			"$eq": []interface{}{bson.M{"$size": "$members"}, 2},
 		},
 	}
 
