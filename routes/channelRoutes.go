@@ -8,11 +8,9 @@ import (
 )
 
 func SetupChannelRoutes(router *gin.Engine) {
-	// Tạo một channel controller mới
+	// Tạo một channel controller và service mới
 	channelService := services.NewChannelService()
 	channelController := controllers.NewChannelController(channelService)
-
-	// Tạo một channel service mới
 
 	// Group routes cho channels
 	channelRoutes := router.Group("/api/channels", middleware.AuthMiddleware(), middleware.CurrentUserMiddleware())

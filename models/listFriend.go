@@ -13,7 +13,7 @@ const (
 	FriendTypeSelf    FriendType = "Self" // Trạng thái dành riêng cho chính mình
 )
 
-type ListFriend struct {
+type ListFriends struct {
 	ID              primitive.ObjectID `json:"id" bson:"_id,omitempty"`
 	UserID          primitive.ObjectID `json:"userID" bson:"userID"`
 	FriendID        primitive.ObjectID `json:"friendID" bson:"friendID"`

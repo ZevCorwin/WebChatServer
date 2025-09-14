@@ -16,8 +16,8 @@ const (
 )
 
 // Xác thực ChannelType
-func (c ChannelType) IsValid() bool {
-	switch c {
+func (ct ChannelType) IsValid() bool {
+	switch ct {
 	case ChannelTypePrivate, ChannelTypeGroup:
 		return true
 	default:
@@ -26,8 +26,8 @@ func (c ChannelType) IsValid() bool {
 }
 
 // Xác thực MemberRole
-func (r MemberRole) IsValid() bool {
-	switch r {
+func (mr MemberRole) IsValid() bool {
+	switch mr {
 	case RoleLeader, RoleDeputy, RoleMember:
 		return true
 	default:

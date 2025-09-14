@@ -42,7 +42,7 @@ func (fs *FriendService) SendFriendRequest(userID, friendID primitive.ObjectID) 
 
 	// Tạo yêu cầu mới
 	now := time.Now().UTC()
-	newRequest := models.ListFriend{
+	newRequest := models.ListFriends{
 		ID:              primitive.NewObjectID(),
 		UserID:          userID,
 		FriendID:        friendID,
@@ -111,8 +111,9 @@ func (fs *FriendService) DeclineFriendRequest(userID, friendID primitive.ObjectI
 }
 
 // Lấy danh sách bạn bè
-func (fs *FriendService) GetFriends(userID primitive.ObjectID) ([]models.ListFriend, error) {
-	collection := fs.DB.Collection("listFriends")
+func (fs *FriendService) GetFriends(userID primitive.ObjectID) ([]map[string]interface{}, error) {
+	listFriendCollection := fs.DB.Collection("listFriends")
+	userCollection := fs.DB.Collection("users")
 
 	filter := bson.M{
 		"$or": []bson.M{
@@ -121,7 +122,7 @@ func (fs *FriendService) GetFriends(userID primitive.ObjectID) ([]models.ListFri
 		},
 	}
 
-	cursor, err := collection.Find(context.Background(), filter)
+	cursor, err := listFriendCollection.Find(context.Background(), filter)
 	if err != nil {
 		return nil, err
 	}
@@ -133,11 +134,40 @@ func (fs *FriendService) GetFriends(userID primitive.ObjectID) ([]models.ListFri
 		}
 	}(cursor, ctx)
 
-	var friends []models.ListFriend
+	var friends []models.ListFriends
 	if err = cursor.All(context.Background(), &friends); err != nil {
 		return nil, err
 	}
-	return friends, nil
+
+	var result []map[string]interface{}
+	for _, friend := range friends {
+		var user struct {
+			Name   string `bson:"name"`
+			Phone  string `bson:"phone"`
+			Avatar string `bson:"avatar"`
+		}
+		userFilter := bson.M{"_id": friend.UserID}
+		err := userCollection.FindOne(ctx, userFilter).Decode(&user)
+		if err != nil {
+			if err == mongo.ErrNoDocuments {
+				log.Println("Không tìm thấy user: ", friend.UserID)
+				continue
+			}
+			return nil, err
+		}
+
+		baseUrl := "http://localhost:8080"
+		listFriendItem := map[string]interface{}{
+			"friendID":     friend.UserID,
+			"friendType":   models.FriendTypeFriend,
+			"friendName":   user.Name,
+			"friendPhone":  user.Phone,
+			"friendAvatar": baseUrl + user.Avatar,
+			"requestDate":  friend.RequestSentData,
+		}
+		result = append(result, listFriendItem)
+	}
+	return result, nil
 }
 
 // Xóa bạn bè
@@ -156,15 +186,16 @@ func (fs *FriendService) RemoveFriend(userID, friendID primitive.ObjectID) error
 }
 
 // Lấy danh sách lời mời kết bạn
-func (fs *FriendService) GetFriendRequests(userID primitive.ObjectID) ([]models.ListFriend, error) {
-	collection := fs.DB.Collection("listFriends")
+func (fs *FriendService) GetFriendRequests(userID primitive.ObjectID) ([]map[string]interface{}, error) {
+	listFriendCollection := fs.DB.Collection("listFriends")
+	userCollection := fs.DB.Collection("users")
 
 	filter := bson.M{
 		"friendID":   userID,
 		"friendType": models.FriendTypePending,
 	}
 
-	cursor, err := collection.Find(context.Background(), filter)
+	cursor, err := listFriendCollection.Find(context.Background(), filter)
 	if err != nil {
 		return nil, err
 	}
@@ -176,11 +207,41 @@ func (fs *FriendService) GetFriendRequests(userID primitive.ObjectID) ([]models.
 		}
 	}(cursor, ctx)
 
-	var requests []models.ListFriend
+	var requests []models.ListFriends
 	if err = cursor.All(context.Background(), &requests); err != nil {
 		return nil, err
 	}
-	return requests, nil
+
+	// Kết quả trả về
+	var result []map[string]interface{}
+	for _, request := range requests {
+		// Tìm thông tin user theo friendID
+		var user struct {
+			Name   string `bson:"name"`
+			Avatar string `bson:"avatar"`
+		}
+		userFilter := bson.M{"_id": request.UserID}
+		err := userCollection.FindOne(ctx, userFilter).Decode(&user)
+		if err != nil {
+			if err == mongo.ErrNoDocuments {
+				log.Println("Không tìm thấy user:", request.UserID)
+				continue
+			}
+			return nil, err
+		}
+		baseUrl := "http://localhost:8080"
+		listFriendRequestItem := map[string]interface{}{
+			"friendID":     request.UserID,
+			"friendName":   user.Name,
+			"friendAvatar": baseUrl + user.Avatar,
+			"requestID":    request.ID,
+			"requestDate":  request.RequestSentData,
+		}
+
+		result = append(result, listFriendRequestItem)
+	}
+
+	return result, nil
 }
 
 // Tìm kiếm bạn bè theo tên
@@ -196,7 +257,7 @@ func (fs *FriendService) SearchFriendsByName(userID primitive.ObjectID, name str
 		},
 	}
 
-	var friendRelations []models.ListFriend
+	var friendRelations []models.ListFriends
 	cursor, err := collectionFriends.Find(context.Background(), filter)
 	if err != nil {
 		return nil, err
@@ -246,7 +307,7 @@ func (fs *FriendService) CheckFriendStatus(userID, friendID primitive.ObjectID) 
 		},
 	}
 
-	var relation models.ListFriend
+	var relation models.ListFriends
 	err := collection.FindOne(context.Background(), filter).Decode(&relation)
 	if err != nil {
 		if err == mongo.ErrNoDocuments {

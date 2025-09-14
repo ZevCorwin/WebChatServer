@@ -69,16 +69,16 @@ func (us *UserService) Register(user models.User) (*models.User, error) {
 		return nil, err
 	}
 
-	// Tạo danh sách bạn bè trống trong collection "listFriends"
-	listFriendsCollection := us.DB.Collection("listFriends")
-	_, err = listFriendsCollection.InsertOne(context.Background(), bson.M{
-		"userID":     user.ID,
-		"friendID":   user.ID,               // Không có bạn bè nào, chỉ tạo quan hệ trống
-		"friendType": models.FriendTypeSelf, // Mặc định quan hệ là "Pending"
-	})
-	if err != nil {
-		return nil, err
-	}
+	//// Tạo danh sách bạn bè trống trong collection "listFriends"
+	//listFriendsCollection := us.DB.Collection("listFriends")
+	//_, err = listFriendsCollection.InsertOne(context.Background(), bson.M{
+	//	"userID":     user.ID,
+	//	"friendID":   user.ID, // Không có bạn bè nào, chỉ tạo quan hệ trống
+	//	"friendType": models.FriendTypeSelf,
+	//})
+	//if err != nil {
+	//	return nil, err
+	//}
 
 	return &user, nil
 }

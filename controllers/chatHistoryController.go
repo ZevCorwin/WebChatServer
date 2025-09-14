@@ -19,25 +19,22 @@ func NewChatHistoryController(service *services.ChatHistoryService) *ChatHistory
 func (chc *ChatHistoryController) GetChatHistory(ctx *gin.Context) {
 	channelID := ctx.Param("channelID")
 	userID := ctx.Param("userID")
+
 	channelObjectID, err1 := primitive.ObjectIDFromHex(channelID)
 	userObjectID, err2 := primitive.ObjectIDFromHex(userID)
-	if err1 != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid channel ID"})
+	if err1 != nil || err2 != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "ID không hợp lệ"})
 		return
 	}
 
-	if err2 != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user ID"})
-		return
-	}
-
-	message, err := chc.ChatHistoryService.GetChatHistory(channelObjectID, userObjectID)
+	data, err := chc.ChatHistoryService.GetChatHistory(channelObjectID, userObjectID)
 	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		// Luôn trả về 200 nhưng messages rỗng nếu không có dữ liệu
+		ctx.JSON(http.StatusOK, gin.H{"message": map[string]interface{}{"messages": []interface{}{}}})
 		return
 	}
 
-	ctx.JSON(http.StatusOK, gin.H{"message": message})
+	ctx.JSON(http.StatusOK, gin.H{"message": data})
 }
 
 func (chc *ChatHistoryController) GetChatHistoryByUserID(ctx *gin.Context) {

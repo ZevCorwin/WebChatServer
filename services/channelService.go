@@ -12,32 +12,68 @@ import (
 	"log"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 type ChannelService struct {
-	DB *mongo.Database
+	DB                 *mongo.Database
+	UserChannelService *UserChannelService
+	ChatHistoryService *ChatHistoryService
 }
 
 func NewChannelService() *ChannelService {
-	return &ChannelService{DB: config.DB}
+	return &ChannelService{
+		DB:                 config.DB,
+		UserChannelService: NewUserChannelService(),
+		ChatHistoryService: NewChatHistoryService(),
+	}
 }
 
 // CreateChannel Xử lý tạo kênh
-func (cs *ChannelService) CreateChannel(name string, channelType models.ChannelType, members []primitive.ObjectID, approvalRequired bool) (*models.Channel, error) {
+func (cs *ChannelService) CreateChannel(userID primitive.ObjectID, name string, channelType models.ChannelType, members []primitive.ObjectID, approvalRequired bool) (*models.Channel, error) {
+	log.Printf("[CreateChannel]CreateChannel called with userID: %s, name: %s, type: %s, members: %v, approvalRequired: %t", userID.Hex(), name, channelType, members, approvalRequired)
 	// Xác thực ChannelType
 	if !channelType.IsValid() {
-		return nil, errors.New("invalid channel type")
+		log.Printf("[CreateChannel]Error: invalid channel type")
+		return nil, errors.New("[CreateChannel]invalid channel type")
 	}
 
 	// Kiểm tra logic cho Private Channel
 	if channelType == models.ChannelTypePrivate && len(members) != 2 {
-		return nil, errors.New("private channel requires exactly 2 members")
+		log.Printf("[CreateChannel]Error: private channel requires exactly 2 members")
+		return nil, errors.New("[CreateChannel]private channel requires exactly 2 members")
 	}
 
 	// Kiểm tra logic cho Group Channel
 	if channelType == models.ChannelTypeGroup && len(members) < 3 {
-		return nil, errors.New("group channel requires at least 3 members")
+		log.Printf("[CreateChannel]Error: group channel requires at least 3 members")
+		return nil, errors.New("[CreateChannel]group channel requires at least 3 members")
 	}
+
+	//Kiểm tra unique members
+	memberMap := make(map[primitive.ObjectID]bool)
+	for _, memberID := range members {
+		if memberMap[memberID] {
+			log.Printf("[CreateChannel]Error: duplicate member ID: %s", memberID.Hex())
+			return nil, errors.New("[CreateChannel]Duplicate member ID")
+		}
+		memberMap[memberID] = true
+	}
+	log.Printf("[CreateChannel]Passed unique members check")
+
+	// Kiểm tra userID có trong members
+	userIDFound := false
+	for _, memberID := range members {
+		if memberID == userID {
+			userIDFound = true
+			break
+		}
+	}
+	if userIDFound == false {
+		log.Printf("[CreateChannel]Error: creator must be a member of the channel")
+		return nil, errors.New("[CreateChannel]creator must be a member of the channel")
+	}
+	log.Printf("[CreateChannel]Passed creator in members check")
 
 	userService := NewUserService()
 	var channelMembers []models.ChannelMember
@@ -45,16 +81,25 @@ func (cs *ChannelService) CreateChannel(name string, channelType models.ChannelT
 	var channelAvatar string
 
 	// Duyệt qua danh sách thành viên và tạo thông tin thành viên
+	leaderAssigned := false
 	for _, memberID := range members {
 		member, err := userService.GetUserByID(memberID.Hex())
 		if err != nil {
-			return nil, errors.New("failed to fetch user data")
+			log.Printf("[CreateChannel]Error: failed to fetch user data for memberID: %s, error: %v", memberID.Hex(), err)
+			return nil, fmt.Errorf("failed to fetch user data: %w", err)
 		}
-		memberNames = append(memberNames, member.Name)
-
+		// Kiểm tra và làm sạch
+		if utf8.ValidString(member.Name) {
+			memberNames = append(memberNames, member.Name)
+		}
+		role := models.RoleMember
+		if memberID == userID && channelType == models.ChannelTypeGroup && !leaderAssigned {
+			role = models.RoleLeader
+			leaderAssigned = true
+		}
 		channelMembers = append(channelMembers, models.ChannelMember{
 			MemberID: memberID,
-			Role:     models.RoleMember,
+			Role:     role,
 		})
 
 		// Lấy avatar từ đối phương nếu là kênh riêng tư
@@ -62,20 +107,28 @@ func (cs *ChannelService) CreateChannel(name string, channelType models.ChannelT
 			channelAvatar = member.Avatar
 		}
 	}
+	log.Printf("[CreateChannel]Passed fetching user data check")
 
-	// Tạo kênh theo loại
+	// Check if leader is assigned for group
+	if channelType == models.ChannelTypeGroup && !leaderAssigned {
+		log.Printf("[CreateChannel]Error: no leader assigned for group channel")
+		return nil, errors.New("[CreateChannel]group channel requires a leader")
+	}
+	log.Printf("[CreateChannel]Passed leader check")
+
+	// Tạo tên kênh theo loại
 	channelName := name
 	if channelType == models.ChannelTypePrivate {
-		// Đặt tên là đối tượng
+		// Đặt tên mặc định là đối tượng là đối tượng
 		channelName = "" // Không lưu cứng tên
 	} else if channelType == models.ChannelTypeGroup && name == "" {
 		// Tạo nhóm mặc định từ danh sách tên
 		channelName = cs.generateGroupChannelName(memberNames)
 	}
-
+	channelName = truncateUTF8(channelName, 50) //Giới hạn an toàn
 	// Xử lý ảnh đại diện nhóm
 	if channelType == models.ChannelTypeGroup && len(channelAvatar) == 0 {
-		channelAvatar = "/uploads/default-group-avatar.png" // Đường dẫn ảnh đại diện mặc định cho nhóm
+		channelAvatar = "/uploads/deadlineDi.jpg" // Đường dẫn ảnh đại diện mặc định cho nhóm
 	}
 
 	// Tạo đối tượng Channel
@@ -99,19 +152,51 @@ func (cs *ChannelService) CreateChannel(name string, channelType models.ChannelT
 	collection := cs.DB.Collection("channels")
 	_, err := collection.InsertOne(context.TODO(), channel)
 	if err != nil {
+		log.Printf("[CreateChannel]Error inserting channel: %v", err)
 		return nil, err
 	}
+	log.Printf("[CreateChannel]Channel inserted successfully")
+
+	// Thêm tất cả thành viên vào userChannel
+	for _, memberID := range members {
+		err := cs.UserChannelService.AddUserToChannel(memberID, channel.ID)
+		if err != nil {
+			log.Printf("[CreateChannel]Error adding user to channel: %v", err)
+			return nil, fmt.Errorf("[CreateChannel]failed to add user to channel: %w", err)
+		}
+	}
+	log.Printf("[CreateChannel]All members added to userChannel")
+
 	return channel, nil
+}
+
+// truncateUTF8 cắt chuỗi UTF-8 an toàn
+func truncateUTF8(s string, maxLength int) string {
+	if len(s) <= maxLength {
+		return s
+	}
+	runes := []rune(s)
+	if len(runes) <= maxLength {
+		return s
+	}
+	return string(runes[:maxLength-3]) + "..."
 }
 
 // generateGroupChannelName Tạo tên kênh nhóm dựa trên danh sách tên thành viên
 func (cs *ChannelService) generateGroupChannelName(memberNames []string) string {
-	const maxLength = 30 // Giới hạn độ dài tên
-	name := strings.Join(memberNames, ", ")
-	if len(name) > maxLength {
-		name = name[:maxLength-3] + "..."
+	const maxLength = 20 // Giới hạn độ dài tên
+	// Lọc tên rỗng và làm sạch
+	var vailName []string
+	for _, groupName := range memberNames {
+		if groupName != "" && utf8.ValidString(groupName) {
+			vailName = append(vailName, groupName)
+		}
 	}
-	return name
+	if len(vailName) == 0 {
+		return "Nhóm " + time.Now().Format("2006-01-02 15:04:05")
+	}
+	groupName := strings.Join(vailName, ", ")
+	return truncateUTF8(groupName, maxLength)
 }
 
 // AddMember Thêm thành viên vào kênh
@@ -437,7 +522,7 @@ func (cs *ChannelService) GetChannelsByUserID(userID primitive.ObjectID) ([]mode
 	return channels, nil
 }
 
-func (cs *ChannelService) FindOrCreatePrivateChannel(member1 string, member2 string) (*models.Channel, error) {
+func (cs *ChannelService) FindOrCreatePrivateChannel(member1 string, member2 string) (map[string]interface{}, error) {
 	id1, err := primitive.ObjectIDFromHex(member1)
 	if err != nil {
 		return nil, fmt.Errorf("Invalid member1 ID")
@@ -458,20 +543,33 @@ func (cs *ChannelService) FindOrCreatePrivateChannel(member1 string, member2 str
 		},
 	}
 
-	log.Println(filter)
-
 	var channel models.Channel
-
-	log.Println(channel)
 	err = collection.FindOne(context.TODO(), filter).Decode(&channel)
 
-	log.Println(err)
-	log.Printf("Filter: %+v\n", filter)
-	log.Printf("Member IDs: id1=%s, id2=%s\n", id1.Hex(), id2.Hex())
-
 	if err == mongo.ErrNoDocuments {
-		return cs.CreateChannel("Private Channel", models.ChannelTypePrivate, []primitive.ObjectID{id1, id2}, false)
+		createdChannel, err := cs.CreateChannel(id1, "Private channel", models.ChannelTypePrivate, []primitive.ObjectID{id1, id2}, false)
+		if err != nil {
+			return nil, err
+		}
+		channel = *createdChannel
+	} else if err != nil {
+		return nil, err
 	}
 
-	return &channel, err
+	chatItems, err := cs.ChatHistoryService.GetChatHistoryByUserID(id1)
+	if err != nil {
+		return nil, err
+	}
+
+	for _, item := range chatItems {
+		if item["channelID"] == channel.ID {
+			return item, nil
+		}
+	}
+
+	return map[string]interface{}{
+		"channelID":   channel.ID,
+		"channelName": channel.ChannelName,
+		"channelType": channel.ChannelType,
+	}, nil
 }

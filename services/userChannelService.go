@@ -4,6 +4,7 @@ import (
 	"chat-app-backend/config"
 	"chat-app-backend/models"
 	"context"
+	"fmt"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
@@ -25,7 +26,7 @@ func (ucs *UserChannelService) AddUserToChannel(userID, channelID primitive.Obje
 	filter := bson.M{"userID": userID, "channelID": channelID}
 	count, err := collection.CountDocuments(context.Background(), filter)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to count documents: %w", err)
 	}
 
 	if count == 0 {
@@ -37,7 +38,7 @@ func (ucs *UserChannelService) AddUserToChannel(userID, channelID primitive.Obje
 		}
 		_, err := collection.InsertOne(context.Background(), userChannel)
 		if err != nil {
-			return err
+			return fmt.Errorf("failed to insert user channel: %w", err)
 		}
 	}
 	return nil

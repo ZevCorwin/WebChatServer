@@ -1,0 +1,32 @@
+# ===== Go build =====
+/bin/
+/build/
+/dist/
+/vendor/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# ===== Logs =====
+*.log
+
+# ===== Environment =====
+.env
+.env.*
+!.env.example   # nếu bạn có file ví dụ
+
+# ===== IDE =====
+.idea/
+.vscode/
+*.iml
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+
+# ===== Uploads (ảnh, file người dùng) =====
+/uploads/

@@ -11,7 +11,7 @@ func SetupFriendRoutes(router *gin.Engine) {
 	friendService := services.NewFriendService()
 	friendController := controllers.NewFriendController(friendService)
 
-	friendRoute := router.Group("/friends")
+	friendRoute := router.Group("/api/friends")
 	{
 		friendRoute.POST("/:userID/send/:friendID", friendController.SendFriendRequest)
 		friendRoute.DELETE("/:userID/cancel/:friendID", friendController.CancelFriendRequest)

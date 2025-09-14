@@ -9,6 +9,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
+	"log"
 	"time"
 )
 
@@ -30,10 +31,13 @@ func NewMessageService() *MessageService {
 
 func (ms *MessageService) SendMessage(channelID, senderID primitive.ObjectID, content string, messageType models.MessageType) (*models.Message, error) {
 	// Sử dụng ChannelService để lấy thông tin kênh
+	log.Printf("[SendMessage] channelID=%s senderID=%s content=%s messageType=%s", channelID.Hex(), senderID.Hex(), content, messageType)
 	channel, err := ms.ChannelService.GetChannel(channelID)
 	if err != nil {
+		log.Printf("[SendMessage] GetChannel error: %v", err)
 		return nil, err
 	}
+	log.Printf("[SendMessage] Found channel: %+v", channel)
 
 	// Kiểm tra xem người gửi có phải là thành viên của kênh hay không
 	if !ms.ChannelService.IsMember(channel, senderID) {
@@ -100,21 +104,41 @@ func (ms *MessageService) SendMessage(channelID, senderID primitive.ObjectID, co
 	}
 
 	// Lưu tin nhắn vào collection "messages"
+	log.Printf("[SendMessage] Message to insert: %+v", message)
 	collection := ms.DB.Collection("messages")
 	_, err = collection.InsertOne(context.Background(), message)
 	if err != nil {
+		log.Printf("[SendMessage] Insert message error: %v", err)
 		return nil, err
 	}
+	log.Printf("[SendMessage] Insert message success")
 
 	// Cập nhật lịch sử chat
 	chatHistoryCollection := ms.DB.Collection("chathistory")
 	filter := bson.M{"channelID": channelID}
-	update := bson.M{"$push": bson.M{"message": message.ID}}
-	opts := options.FindOneAndUpdate().SetUpsert(true)
-	err = chatHistoryCollection.FindOneAndUpdate(context.Background(), filter, update, opts).Err()
+
+	// lưu cả id và nội dung tin nhắn cuối
+	update := bson.M{
+		"$push": bson.M{"messages": message.ID},
+		"$set": bson.M{
+			"channelID": channelID,
+			"lastMessage": models.LastMessagePreview{
+				ID:      message.ID,      // để sau này dễ fetch lại
+				Content: message.Content, // hiển thị preview nhanh
+				Type:    string(message.MessageType),
+				Sender:  senderID,
+			},
+			"lastActive": message.Timestamp,
+		},
+	}
+
+	opts := options.Update().SetUpsert(true)
+	_, err = chatHistoryCollection.UpdateOne(context.Background(), filter, update, opts)
 	if err != nil {
+		log.Printf("[SendMessage] Update chat history error: %v", err)
 		return nil, err
 	}
+	log.Printf("[SendMessage] Update chat history success")
 
 	err = ms.ChatHistoryService.UpdateLastActive(channelID, message.Timestamp)
 	if err != nil {
@@ -127,6 +151,17 @@ func (ms *MessageService) SendMessage(channelID, senderID primitive.ObjectID, co
 	}
 
 	return message, nil
+}
+
+// Đã sửa
+func (ms *MessageService) UpdateMessageStatus(messageID, channelID primitive.ObjectID, status models.MessageStatus) error {
+	_, err := ms.DB.Collection("messages").UpdateOne(
+		context.Background(),
+		bson.M{"_id": messageID, "channelID": channelID},
+		bson.M{"$set": bson.M{"status": status}},
+	)
+	return err
+
 }
 
 // Kiểm tra người dùng có vai trò nhất định trong kênh không

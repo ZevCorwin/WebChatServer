@@ -4,13 +4,17 @@ import (
 	"chat-app-backend/models"
 	"chat-app-backend/services"
 	"context"
+	"errors"
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/goccy/go-json"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/gorilla/websocket"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 )
 
@@ -22,61 +26,101 @@ var upgrader = websocket.Upgrader{
 }
 
 type MessageController struct {
-	MessageService *services.MessageService
-	ChannelService *services.ChannelService
+	MessageService   *services.MessageService
+	ChannelService   *services.ChannelService
+	WebRTCController *WebRTCController
+	Clients          map[*websocket.Conn]string // Lưu userID cho mỗi kết nối
+	Mutex            sync.Mutex
 }
 
-func NewMessageController(messageService *services.MessageService, channelService *services.ChannelService) *MessageController {
-	return &MessageController{MessageService: messageService, ChannelService: channelService}
-}
-
-// HandleWebSocket xử lý kết nối WebSocket
-var (
-	clients   = make(map[*websocket.Conn]bool) // Lưu trữ danh sách kết nối
-	broadcast = make(chan []byte)              // Kênh để broadcast tin nhắn
-	mutex     sync.Mutex                       // Đảm bảo thread-safe
-)
-
-// Goroutine để gửi tin nhắn đến tất cả client
-func init() {
-	go func() {
-		for {
-			message := <-broadcast
-			mutex.Lock()
-			for client := range clients {
-				err := client.WriteMessage(websocket.TextMessage, message)
-				if err != nil {
-					client.Close()
-					delete(clients, client)
-				}
-			}
-			mutex.Unlock()
-		}
-	}()
+func NewMessageController(ms *services.MessageService, cs *services.ChannelService, wc *WebRTCController) *MessageController {
+	return &MessageController{
+		MessageService:   ms,
+		ChannelService:   cs,
+		WebRTCController: wc,
+		Clients:          make(map[*websocket.Conn]string),
+	}
 }
 
 func (mc *MessageController) HandleWebSocket(ctx *gin.Context) {
+	// Xác thực JWT
+	authHeader := ctx.GetHeader("Authorization")
+	tokenQuery := ctx.Query("token")
+	log.Printf("Authorization header: %s", authHeader)
+	log.Printf("Token query: %s", tokenQuery)
+	tokenString := tokenQuery
+	if tokenString == "" {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Token is required"})
+		return
+	}
+	claims := jwt.MapClaims{}
+	token, err := jwt.ParseWithClaims(tokenString, claims, func(token *jwt.Token) (interface{}, error) {
+		secret := os.Getenv("JWT_SECRET")
+		if secret == "" {
+			log.Printf("JWT_SECRET not set")
+			return nil, errors.New("JWT_SECRET not set")
+		}
+		return []byte(secret), nil
+	})
+	if err != nil {
+		log.Printf("JWT parse error: %v", err)
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": fmt.Sprintf("Invalid or expired token: %v", err)})
+		return
+	}
+	if !token.Valid {
+		log.Printf("Token is invalid")
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Token is invalid"})
+		return
+	}
+	log.Printf("Token claims: %+v", claims)
+	claims, ok := token.Claims.(jwt.MapClaims)
+	if !ok {
+		log.Printf("Invalid claims type")
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid token claims type"})
+		return
+	}
+	log.Printf("Claims[sub]: %v", claims["sub"])
+	log.Printf("Claims[user_id]: %v", claims["user_id"])
+	if claims["user_id"] == nil {
+		log.Printf("No user_id in claims")
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "No user_id in token"})
+		return
+	}
+	userID, ok := claims["user_id"].(string)
+	if !ok {
+		log.Printf("Invalid userID in user_id")
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid userID in token"})
+		return
+	}
+	log.Printf("Authenticated userID: %s", userID)
+
 	conn, err := upgrader.Upgrade(ctx.Writer, ctx.Request, nil)
 	if err != nil {
+		log.Printf("WebSocket upgrade error: %v", err)
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to upgrade to WebSocket"})
 		return
 	}
+	log.Printf("WebSocket connected for userID: %s", userID)
 	defer conn.Close()
 
-	// Thêm kết nối WebSocket vào danh sách clients
-	mutex.Lock()
-	clients[conn] = true
-	mutex.Unlock()
+	// Lưu kết nối với userID
+	mc.Mutex.Lock()
+	mc.Clients[conn] = userID
+	mc.WebRTCController.Connections[userID] = conn
+	log.Printf("Stored connection for userID %s: %p", userID, conn)
+	mc.Mutex.Unlock()
 
 	for {
 		// Đọc tin nhắn từ WebSocket
 		_, msg, err := conn.ReadMessage()
 		if err != nil {
-			mutex.Lock()
-			delete(clients, conn)
-			mutex.Unlock()
+			log.Printf("WebSocket read error for userID %s: %v", userID, err)
+			mc.Mutex.Lock()
+			delete(mc.Clients, conn)
+			mc.Mutex.Unlock()
 			break
 		}
+		log.Printf("Received message from userID %s: %s", userID, string(msg))
 
 		// Giải mã tin nhắn nhận được
 		var incomingMessage struct {
@@ -114,6 +158,7 @@ func (mc *MessageController) HandleWebSocket(ctx *gin.Context) {
 			log.Printf("Lỗi gửi tin nhắn: %v", err)
 			continue
 		}
+		log.Printf("[HandleWebSocket] Message saved: %+v", message)
 
 		// Truy vấn thông tin người gửi để tạo phản hồi nhất quán
 		var sender struct {
@@ -142,13 +187,12 @@ func (mc *MessageController) HandleWebSocket(ctx *gin.Context) {
 			"recalled":     message.Recalled,
 			"url":          message.URL,
 			"fileId":       message.FileID,
+			"channelId":    incomingMessage.ChannelID,
 		}
 
-		// Broadcast tin nhắn đến tất cả client
-		broadcast <- func() []byte {
-			resp, _ := json.Marshal(response)
-			return resp
-		}()
+		// Broadcast đến các thành viên kênh
+		log.Printf("[HandleWebSocket] Response: %+v", response)
+		mc.WebRTCController.BroadcastMessage(channelID, response)
 	}
 }
 
@@ -190,6 +234,17 @@ func (mc *MessageController) SendMessage(ctx *gin.Context) {
 		ctx.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
+
+	// Broadcast tin nhắn qua WebSocket
+	mc.WebRTCController.BroadcastMessage(channelID, map[string]interface{}{
+		"event":       "message_received",
+		"messageID":   message.ID.Hex(),
+		"channelID":   channelID.Hex(),
+		"content":     request.Content,
+		"senderId":    request.SenderID,
+		"messageType": request.MessageType,
+		"timestamp":   message.Timestamp,
+	})
 
 	ctx.JSON(http.StatusOK, gin.H{"message": message})
 }

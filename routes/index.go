@@ -14,9 +14,6 @@ func SetupRouter() *gin.Engine {
 	// Cấu hình routes cho tin nhắn
 	SetupMessageRoutes(router)
 
-	// Cấu hình routes cho WebRTC
-	SetupWebRTCRoutes(router)
-
 	// Cấu hình routes cho Channel
 	SetupChannelRoutes(router)
 

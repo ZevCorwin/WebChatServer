@@ -21,6 +21,7 @@ func NewChannelController(service *services.ChannelService) *ChannelController {
 // Tạo kênh
 func (cc *ChannelController) CreateChannelHandler(ctx *gin.Context) {
 	var req struct {
+		UserID           primitive.ObjectID   `json:"userID"`
 		Name             string               `json:"name"`
 		Type             models.ChannelType   `json:"type"`
 		Members          []primitive.ObjectID `json:"members"`
@@ -34,7 +35,7 @@ func (cc *ChannelController) CreateChannelHandler(ctx *gin.Context) {
 	}
 
 	// Gọi service để tạo kênh
-	channel, err := cc.ChannelService.CreateChannel(req.Name, req.Type, req.Members, req.ApprovalRequired)
+	channel, err := cc.ChannelService.CreateChannel(req.UserID, req.Name, req.Type, req.Members, req.ApprovalRequired)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return

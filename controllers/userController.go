@@ -85,28 +85,28 @@ func (uc *UserController) LoginHandler(ctx *gin.Context) {
 		return
 	}
 
-	// Kiểm tra xem người dùng đã có danh sách bạn bè chưa
-	friendCollection := uc.UserService.DB.Collection("listFriends")
-	friendFilter := bson.M{"userID": user.ID}
-	count, err := friendCollection.CountDocuments(context.Background(), friendFilter)
-	if err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Lỗi khi kiểm tra danh sách bạn bè"})
-		return
-	}
-
-	// Nếu không có danh sách bạn bè thì tạo danh sách bạn bè trống
-	if count == 0 {
-		emptyList := models.ListFriend{
-			UserID:     user.ID,
-			FriendID:   user.ID, // Bạn có thể để friendID là chính người dùng để tạo một bản ghi trống
-			FriendType: models.FriendTypeSelf,
-		}
-		_, err := friendCollection.InsertOne(context.Background(), emptyList)
-		if err != nil {
-			ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Lỗi khi tạo danh sách bạn bè"})
-			return
-		}
-	}
+	//// Kiểm tra xem người dùng đã có danh sách bạn bè chưa
+	//friendCollection := uc.UserService.DB.Collection("listFriends")
+	//friendFilter := bson.M{"userID": user.ID}
+	//count, err := friendCollection.CountDocuments(context.Background(), friendFilter)
+	//if err != nil {
+	//	ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Lỗi khi kiểm tra danh sách bạn bè"})
+	//	return
+	//}
+	//
+	//// Nếu không có danh sách bạn bè thì tạo danh sách bạn bè trống
+	//if count == 0 {
+	//	emptyList := models.ListFriends{
+	//		UserID:     user.ID,
+	//		FriendID:   user.ID, // Bạn có thể để friendID là chính người dùng để tạo một bản ghi trống
+	//		FriendType: models.FriendTypeSelf,
+	//	}
+	//	_, err := friendCollection.InsertOne(context.Background(), emptyList)
+	//	if err != nil {
+	//		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Lỗi khi tạo danh sách bạn bè"})
+	//		return
+	//	}
+	//}
 
 	// Tạo JWT token
 	token, err := uc.UserService.GenerateJWT(user.ID)
