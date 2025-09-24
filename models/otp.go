@@ -8,7 +8,10 @@ import (
 type OTPPurpose string
 
 const (
-	OTPPurposeRegister OTPPurpose = "register"
+	OTPPurposeRegister       OTPPurpose = "register"
+	OTPPurposeChangeEmailOld OTPPurpose = "change_email_old" // OTP gửi tới email hiện tại
+	OTPPurposeChangeEmailNew OTPPurpose = "change_email_new" // OTP gửi tới email mới
+	OTPPurposeChangePhone    OTPPurpose = "change_phone"
 )
 
 type OTP struct {

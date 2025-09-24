@@ -69,17 +69,6 @@ func (us *UserService) Register(user models.User) (*models.User, error) {
 		return nil, err
 	}
 
-	//// Tạo danh sách bạn bè trống trong collection "listFriends"
-	//listFriendsCollection := us.DB.Collection("listFriends")
-	//_, err = listFriendsCollection.InsertOne(context.Background(), bson.M{
-	//	"userID":     user.ID,
-	//	"friendID":   user.ID, // Không có bạn bè nào, chỉ tạo quan hệ trống
-	//	"friendType": models.FriendTypeSelf,
-	//})
-	//if err != nil {
-	//	return nil, err
-	//}
-
 	return &user, nil
 }
 
@@ -173,6 +162,34 @@ func (us *UserService) GetUserByPhone(phone string) (*models.User, error) {
 func (us *UserService) UpdateUserProfile(user *models.User) error {
 	// Gọi hàm cập nhật từ model
 	return user.UpdateProfileInDB()
+}
+
+// VerifyUserPassword: check password hiện tại của user
+func (us *UserService) VerifyUserPassword(userID primitive.ObjectID, plain string) (bool, error) {
+	col := us.DB.Collection("users")
+	var u models.User
+	if err := col.FindOne(context.Background(), bson.M{"_id": userID}).Decode(&u); err != nil {
+		return false, err
+	}
+	return us.CheckPasswordHash(plain, u.Password), nil
+}
+
+// UpdateEmail: đổi email (đã verify OTP ở controller/service trước đó)
+func (us *UserService) UpdateEmail(userID primitive.ObjectID, newEmail string) error {
+	col := us.DB.Collection("users")
+
+	// unique check
+	var exists models.User
+	err := col.FindOne(context.Background(), bson.M{"email": newEmail}).Decode(&exists)
+	if err == nil {
+		return fmt.Errorf("Email đã tồn tại")
+	}
+
+	_, err = col.UpdateOne(context.Background(),
+		bson.M{"_id": userID},
+		bson.M{"$set": bson.M{"email": newEmail}},
+	)
+	return err
 }
 
 // GetLastActiveTime tính toán thời gian người dùng đã ngừng hoạt động trong kênh

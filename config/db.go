@@ -3,6 +3,7 @@ package config
 import (
 	"context"
 	"fmt"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"log"
@@ -50,5 +51,16 @@ func ConnectDB() *mongo.Database {
 
 	// Kết nối thành công
 	fmt.Printf("Kết nối thành công đến MongoDB tại URI: %s\n", dbURI)
-	return client.Database(dbName)
+	db := client.Database(dbName)
+
+	otpCollection := db.Collection("otps")
+	indexModel := mongo.IndexModel{
+		Keys:    bson.M{"expires_at": 1},
+		Options: options.Index().SetExpireAfterSeconds(0),
+	}
+	if _, err := otpCollection.Indexes().CreateOne(context.Background(), indexModel); err != nil {
+		log.Printf("Không thể tạo TTL index cho OTP: %v", err)
+	}
+
+	return db
 }

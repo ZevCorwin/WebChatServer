@@ -15,6 +15,8 @@ func SetupUserRoutes(router *gin.Engine) {
 	otpService := services.NewOTPService()
 	authController := controllers.NewAuthController(userService, otpService)
 
+	emailChangeCtrl := controllers.NewEmailChangeController(userService, otpService)
+
 	// Đăng ký routes
 	router.POST("/register", userController.RegisterHandler) // cũ (nếu vẫn muốn để)
 	// Mới - Đăng ký 2 bước
@@ -26,6 +28,11 @@ func SetupUserRoutes(router *gin.Engine) {
 	router.GET("/users/:id", userController.GetUserByIdHandler)
 	router.PUT("/users/:id", userController.UpdateProfileHandler)
 	router.GET("/users/search", userController.SearchUserByPhoneHandler)
+
+	router.POST("/users/:id/change-email/request-old-otp", emailChangeCtrl.RequestOldEmailOTP)
+	router.POST("/users/:id/change-email/verify-old-otp", emailChangeCtrl.VerifyOldEmailOTP)
+	router.POST("/users/:id/change-email/request-new-otp", emailChangeCtrl.RequestNewEmailOTP)
+	router.POST("/users/:id/change-email/verify-new-otp", emailChangeCtrl.VerifyNewEmailAndChange)
 
 	protected := router.Group("/")
 	protected.Use(middleware.AuthMiddleware())

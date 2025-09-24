@@ -17,5 +17,4 @@ func SetupMessageRoutes(router *gin.Engine) {
 
 	// Đăng ký routes
 	router.GET("/ws/messages", messageController.HandleWebSocket)
-	router.POST("/api/messages/send", messageController.SendMessage)
 }

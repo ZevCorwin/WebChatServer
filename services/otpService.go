@@ -51,14 +51,10 @@ func (osv *OTPService) CreateAndSendRegisterOTP(email string, payload map[string
 		"purpose": models.OTPPurposeRegister,
 	}).Decode(&lastOTP)
 
-	// Nếu tìm thấy OTP cũ → kiểm tra thời gian tạo
-	if err == nil {
+	if err == nil { // chỉ khi có OTP cũ mới check
 		if time.Since(lastOTP.CreatedAt) < 30*time.Second {
-			return fmt.Errorf("bạn chỉ được yêu cầu mã OTP sau 30 giây")
+			return fmt.Errorf("Bạn chỉ được yêu cầu mã OTP sau 30 giây")
 		}
-	} else if err != mongo.ErrNoDocuments {
-		// Chỉ trả lỗi nếu là lỗi khác, không phải không tìm thấy
-		return fmt.Errorf("lỗi truy vấn OTP: %v", err)
 	}
 
 	code, err := osv.generate6Digits()
@@ -124,4 +120,71 @@ func (osv *OTPService) VerifyRegisterOTP(email, code string) (map[string]interfa
 	// đúng → xoá luôn để one-time
 	_, _ = collection.DeleteOne(context.Background(), bson.M{"_id": record.ID})
 	return record.Payload, nil
+}
+
+// CreateAndSendOTP: dùng chung cho các purpose (old/new)
+func (osv *OTPService) CreateAndSendOTP(purpose models.OTPPurpose, email string, subject string, htmlBodyFunc func(code string) string) error {
+	collection := osv.DB.Collection("otps")
+
+	// chặn spam 30s
+	var last models.OTP
+	_ = collection.FindOne(context.Background(), bson.M{
+		"email":   email,
+		"purpose": purpose,
+	}).Decode(&last)
+	if !last.CreatedAt.IsZero() && time.Since(last.CreatedAt) < 30*time.Second {
+		return fmt.Errorf("Bạn chỉ được yêu cầu mã OTP sau 30 giây")
+	}
+
+	code, err := osv.generate6Digits()
+	if err != nil {
+		return err
+	}
+
+	otp := models.OTP{
+		Email:     email,
+		Code:      code,
+		Purpose:   purpose,
+		ExpiresAt: time.Now().Add(10 * time.Minute),
+		Attempts:  0,
+		Payload:   map[string]interface{}{}, // tuỳ ý kèm thêm context nếu cần
+		CreatedAt: time.Now(),
+	}
+
+	if _, err := collection.InsertOne(context.Background(), otp); err != nil {
+		return err
+	}
+
+	body := htmlBodyFunc(code)
+	return osv.EmailService.Send(email, subject, body)
+}
+
+// VerifyOTP: xác thực theo purpose + email
+func (osv *OTPService) VerifyOTP(purpose models.OTPPurpose, email, code string) error {
+	collection := osv.DB.Collection("otps")
+
+	var record models.OTP
+	if err := collection.FindOne(context.Background(), bson.M{
+		"email":   email,
+		"purpose": purpose,
+	}).Decode(&record); err != nil {
+		return fmt.Errorf("OTP không tồn tại hoặc đã hết hạn")
+	}
+
+	if time.Now().After(record.ExpiresAt) {
+		_, _ = collection.DeleteOne(context.Background(), bson.M{"_id": record.ID})
+		return fmt.Errorf("OTP đã hết hạn")
+	}
+
+	if record.Code != code {
+		_ = collection.FindOneAndUpdate(context.Background(),
+			bson.M{"_id": record.ID},
+			bson.M{"$inc": bson.M{"attempts": 1}},
+		)
+		return fmt.Errorf("Mã OTP không đúng")
+	}
+
+	// one-time
+	_, _ = collection.DeleteOne(context.Background(), bson.M{"_id": record.ID})
+	return nil
 }
