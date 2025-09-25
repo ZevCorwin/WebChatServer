@@ -27,12 +27,17 @@ func SetupUserRoutes(router *gin.Engine) {
 	router.GET("/users", userController.GetAllUsersHandler)
 	router.GET("/users/:id", userController.GetUserByIdHandler)
 	router.PUT("/users/:id", userController.UpdateProfileHandler)
+	router.POST("/users/:id/avatar", userController.UpdateAvatarHandler)
+	router.POST("/users/:id/cover", userController.UpdateCoverPhotoHandler)
 	router.GET("/users/search", userController.SearchUserByPhoneHandler)
 
 	router.POST("/users/:id/change-email/request-old-otp", emailChangeCtrl.RequestOldEmailOTP)
 	router.POST("/users/:id/change-email/verify-old-otp", emailChangeCtrl.VerifyOldEmailOTP)
 	router.POST("/users/:id/change-email/request-new-otp", emailChangeCtrl.RequestNewEmailOTP)
 	router.POST("/users/:id/change-email/verify-new-otp", emailChangeCtrl.VerifyNewEmailAndChange)
+
+	router.POST("/users/:id/change-phone", userController.ChangePhoneHandler)
+	router.POST("/users/:id/change-password", userController.ChangePasswordHandler)
 
 	protected := router.Group("/")
 	protected.Use(middleware.AuthMiddleware())

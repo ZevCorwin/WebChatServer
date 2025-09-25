@@ -8,6 +8,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
+	"log"
 	"net/http"
 )
 
@@ -371,4 +372,152 @@ func (uc *UserController) GetUserChannelsHandler(ctx *gin.Context) {
 	}
 
 	ctx.JSON(http.StatusOK, gin.H{"userChannels": userChannels})
+}
+
+// ChangePhoneHandler xử lý yêu cầu đổi số điện thoại
+func (uc *UserController) ChangePhoneHandler(ctx *gin.Context) {
+	uid := ctx.Param("id")
+	userID, err := primitive.ObjectIDFromHex(uid)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "ID không hợp lệ"})
+		return
+	}
+
+	var body struct {
+		Password string `json:"password"`
+		NewPhone string `json:"newPhone"`
+	}
+	if err := ctx.ShouldBindJSON(&body); err != nil || body.Password == "" || body.NewPhone == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Thiếu mật khẩu hoặc số điện thoại mới"})
+		return
+	}
+
+	// Xác thực mật khẩu
+	ok, err := uc.UserService.VerifyUserPassword(userID, body.Password)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Lỗi khi kiểm tra mật khẩu"})
+		return
+	}
+	if !ok {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Mật khẩu không đúng"})
+		return
+	}
+
+	// Đổi số điện thoại
+	if err := uc.UserService.UpdatePhone(userID, body.NewPhone); err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"message": "Đổi số điện thoại thành công", "newPhone": body.NewPhone})
+}
+
+// ChangePasswordHandler xử lý đổi mật khẩu
+func (uc *UserController) ChangePasswordHandler(c *gin.Context) {
+	userID := c.Param("id")
+
+	var req struct {
+		OldPassword string `json:"oldPassword"`
+		NewPassword string `json:"newPassword"`
+	}
+
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "Dữ liệu không hợp lệ"})
+		return
+	}
+
+	// gọi service
+	err := uc.UserService.ChangePassword(userID, req.OldPassword, req.NewPassword)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{"message": "Đổi mật khẩu thành công"})
+}
+
+// UpdateAvatarHandler xử lý upload avatar
+func (uc *UserController) UpdateAvatarHandler(c *gin.Context) {
+	userID := c.Param("id")
+	objID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		log.Println("[UpdateAvatarHandler] Lỗi convert ObjectID:", err)
+		c.JSON(400, gin.H{"error": "UserID không hợp lệ"})
+		return
+	}
+
+	// Log query default
+	log.Println("[UpdateAvatarHandler] Query default =", c.Query("default"))
+
+	if c.Query("default") == "true" {
+		defaultPath := "/uploads/deadlineDi.jpg"
+		log.Println("[UpdateAvatarHandler] Đặt avatar mặc định cho user:", userID)
+
+		if err := uc.UserService.UpdateAvatar(objID, defaultPath); err != nil {
+			log.Println("[UpdateAvatarHandler] Lỗi UpdateAvatar:", err)
+			c.JSON(500, gin.H{"error": "Không thể cập nhật avatar mặc định"})
+			return
+		}
+
+		c.JSON(200, gin.H{
+			"message": "Đặt avatar mặc định thành công",
+			"avatar":  defaultPath,
+		})
+		return
+	}
+
+	file, err := c.FormFile("avatar")
+	if err != nil {
+		log.Println("[UpdateAvatarHandler] Không tìm thấy file upload:", err)
+		c.JSON(400, gin.H{"error": "Không tìm thấy file upload"})
+		return
+	}
+
+	log.Println("[UpdateAvatarHandler] Upload file:", file.Filename)
+
+	path := fmt.Sprintf("/uploads/%s", file.Filename)
+	if err := c.SaveUploadedFile(file, "."+path); err != nil {
+		log.Println("[UpdateAvatarHandler] Lỗi lưu file:", err)
+		c.JSON(500, gin.H{"error": "Không thể lưu file"})
+		return
+	}
+
+	if err := uc.UserService.UpdateAvatar(objID, path); err != nil {
+		log.Println("[UpdateAvatarHandler] Lỗi UpdateAvatar:", err)
+		c.JSON(500, gin.H{"error": "Không thể cập nhật avatar"})
+		return
+	}
+
+	log.Println("[UpdateAvatarHandler] Thành công:", path)
+	c.JSON(200, gin.H{"message": "Cập nhật avatar thành công", "avatar": path})
+}
+
+// UpdateCoverPhotoHandler xử lý upload cover photo
+func (uc *UserController) UpdateCoverPhotoHandler(c *gin.Context) {
+	userID := c.Param("id")
+	objID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		c.JSON(400, gin.H{"error": "UserID không hợp lệ"})
+		return
+	}
+
+	file, err := c.FormFile("cover")
+	if err != nil {
+		c.JSON(400, gin.H{"error": "Không tìm thấy file"})
+		return
+	}
+
+	// Lưu file vào thư mục uploads
+	path := fmt.Sprintf("/uploads/%s", file.Filename)
+	if err := c.SaveUploadedFile(file, "."+path); err != nil {
+		c.JSON(500, gin.H{"error": "Không thể lưu file"})
+		return
+	}
+
+	if err := uc.UserService.UpdateCoverPhoto(objID, path); err != nil {
+		c.JSON(500, gin.H{"error": "Không thể cập nhật ảnh bìa"})
+		return
+	}
+
+	c.JSON(200, gin.H{"message": "Cập nhật ảnh bìa thành công", "coverPhoto": path})
 }

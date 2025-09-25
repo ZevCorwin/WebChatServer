@@ -160,8 +160,62 @@ func (us *UserService) GetUserByPhone(phone string) (*models.User, error) {
 }
 
 func (us *UserService) UpdateUserProfile(user *models.User) error {
-	// Gọi hàm cập nhật từ model
-	return user.UpdateProfileInDB()
+	col := us.DB.Collection("users")
+
+	// Chỉ cập nhật các field cho phép
+	set := bson.M{
+		"name":          user.Name,
+		"birthDate":     user.BirthDate,
+		"gender":        user.Gender,
+		"address":       user.Address,
+		"maritalStatus": user.MaritalStatus,
+	}
+
+	// Nếu bạn muốn bỏ qua field rỗng (chỉ update những gì client gửi và không rỗng),
+	// có thể lọc thêm:
+	for k, v := range set {
+		switch vv := v.(type) {
+		case string:
+			if vv == "" {
+				delete(set, k)
+			}
+		}
+	}
+
+	if len(set) == 0 {
+		return nil // không có gì để update
+	}
+
+	_, err := col.UpdateOne(
+		context.Background(),
+		bson.M{"_id": user.ID},
+		bson.M{"$set": set},
+	)
+	return err
+}
+
+// UpdateAvatar: đổi ảnh đại diện
+func (us *UserService) UpdateAvatar(userID primitive.ObjectID, avatarPath string) error {
+	col := us.DB.Collection("users")
+
+	_, err := col.UpdateOne(
+		context.Background(),
+		bson.M{"_id": userID},
+		bson.M{"$set": bson.M{"avatar": avatarPath}},
+	)
+	return err
+}
+
+// UpdateCoverPhoto: đổi ảnh bìa
+func (us *UserService) UpdateCoverPhoto(userID primitive.ObjectID, coverPath string) error {
+	col := us.DB.Collection("users")
+
+	_, err := col.UpdateOne(
+		context.Background(),
+		bson.M{"_id": userID},
+		bson.M{"$set": bson.M{"coverPhoto": coverPath}},
+	)
+	return err
 }
 
 // VerifyUserPassword: check password hiện tại của user
@@ -207,4 +261,56 @@ func (us *UserService) FormatLastActive(lastActive time.Time) string {
 	default:
 		return fmt.Sprintf("%d ngày trước", int(duration.Hours()/24))
 	}
+}
+
+// UpdatePhone: đổi số điện thoại (sau khi đã verify mật khẩu ở controller)
+func (us *UserService) UpdatePhone(userID primitive.ObjectID, newPhone string) error {
+	col := us.DB.Collection("users")
+
+	// Check nếu số điện thoại đã tồn tại
+	var exists models.User
+	err := col.FindOne(context.Background(), bson.M{"phone": newPhone}).Decode(&exists)
+	if err == nil {
+		return fmt.Errorf("Số điện thoại đã tồn tại")
+	}
+
+	_, err = col.UpdateOne(context.Background(),
+		bson.M{"_id": userID},
+		bson.M{"$set": bson.M{"phone": newPhone}},
+	)
+	return err
+}
+func (us *UserService) ChangePassword(userID, oldPass, newPass string) error {
+	col := us.DB.Collection("users")
+
+	objID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		return errors.New("UserID không hợp lệ")
+	}
+
+	var user models.User
+	if err := col.FindOne(context.Background(), bson.M{"_id": objID}).Decode(&user); err != nil {
+		return errors.New("Người dùng không tồn tại")
+	}
+
+	// kiểm tra mật khẩu cũ
+	if !us.CheckPasswordHash(oldPass, user.Password) {
+		return errors.New("Mật khẩu cũ không đúng")
+	}
+
+	// hash mật khẩu mới
+	hashed, err := utils.HashPassword(newPass)
+	if err != nil {
+		return errors.New("Không thể mã hóa mật khẩu mới")
+	}
+
+	_, err = col.UpdateOne(context.Background(),
+		bson.M{"_id": objID},
+		bson.M{"$set": bson.M{"password": hashed}},
+	)
+	if err != nil {
+		return errors.New("Không thể cập nhật mật khẩu")
+	}
+
+	return nil
 }
