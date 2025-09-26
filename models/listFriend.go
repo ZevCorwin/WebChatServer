@@ -10,7 +10,6 @@ type FriendType string
 const (
 	FriendTypePending FriendType = "Pending"
 	FriendTypeFriend  FriendType = "Friend"
-	FriendTypeSelf    FriendType = "Self" // Trạng thái dành riêng cho chính mình
 )
 
 type ListFriends struct {

@@ -5,6 +5,7 @@ import (
 	"chat-app-backend/services"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/mongo"
+	"log"
 	"net/http"
 
 	"go.mongodb.org/mongo-driver/bson/primitive"
@@ -79,11 +80,18 @@ func (cc *ChannelController) AddMemberHandler(ctx *gin.Context) {
 	ctx.JSON(http.StatusOK, gin.H{"channel": channel})
 }
 
-// Xóa thành viên khỏi kênh
+// RemoveMemberHandler xóa thành viên khỏi kênh
 func (cc *ChannelController) RemoveMemberHandler(ctx *gin.Context) {
 	channelIdStr := ctx.Param("channelID")
 	memberIdStr := ctx.Param("memberID")
-	removerIdStr := ctx.Param("removerID")
+
+	// Lấy user từ JWT middleware (đã xác thực thành công trước đó)
+	userID := ctx.GetString("user_id")
+	removerID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid remover ID"})
+		return
+	}
 
 	channelID, err := primitive.ObjectIDFromHex(channelIdStr)
 	if err != nil {
@@ -95,19 +103,22 @@ func (cc *ChannelController) RemoveMemberHandler(ctx *gin.Context) {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid member ID"})
 		return
 	}
-	removerID, err := primitive.ObjectIDFromHex(removerIdStr)
-	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid remover ID"})
-		return
-	}
 
+	// Lấy thông tin kênh
 	channel, err := cc.ChannelService.GetChannel(channelID)
 	if err != nil {
 		ctx.JSON(http.StatusNotFound, gin.H{"error": "Channel not found"})
 		return
 	}
 
-	// Xóa thành viên
+	// Log thông tin role hiện tại để debug
+	for _, m := range channel.Members {
+		if m.MemberID == removerID {
+			log.Printf("[RemoveMember] remover=%s role=%s", removerID.Hex(), m.Role)
+		}
+	}
+
+	// Thực hiện xóa thành viên
 	if err := cc.ChannelService.RemoveMember(channel, removerID, memberID); err != nil {
 		ctx.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
@@ -124,7 +135,7 @@ func (cc *ChannelController) RemoveMemberHandler(ctx *gin.Context) {
 
 // Lấy danh sách thành viên
 func (cc *ChannelController) ListMembersHandler(ctx *gin.Context) {
-	channelID := ctx.Query("channelId")
+	channelID := ctx.Param("channelID")
 	id, err := primitive.ObjectIDFromHex(channelID)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid channel id"})
@@ -192,38 +203,49 @@ func (cc *ChannelController) ToggleApprovalHandler(ctx *gin.Context) {
 func (cc *ChannelController) LeaveChannelHandler(ctx *gin.Context) {
 	channelIdStr := ctx.Param("channelID")
 	memberIdStr := ctx.Param("memberID")
-	newLeaderIdStr := ctx.Param("newLeaderID")
 
+	// Parse IDs từ param
 	channelID, err := primitive.ObjectIDFromHex(channelIdStr)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid channel id"})
 		return
 	}
-
 	memberID, err := primitive.ObjectIDFromHex(memberIdStr)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid member ID"})
 		return
 	}
 
-	var newLeaderId *primitive.ObjectID
-	if newLeaderIdStr != "" {
-		id, err := primitive.ObjectIDFromHex(newLeaderIdStr)
+	// Tùy chọn: newLeaderID trong body JSON
+	var req struct {
+		NewLeaderID string `json:"newLeaderID"`
+	}
+	var newLeaderID *primitive.ObjectID
+	if err := ctx.ShouldBindJSON(&req); err == nil && req.NewLeaderID != "" {
+		oid, err := primitive.ObjectIDFromHex(req.NewLeaderID)
 		if err != nil {
 			ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid new leader ID"})
 			return
 		}
-		newLeaderId = &id
+		newLeaderID = &oid
 	}
 
+	// Lấy channel
 	channel, err := cc.ChannelService.GetChannel(channelID)
 	if err != nil {
 		ctx.JSON(http.StatusNotFound, gin.H{"error": "Channel not found"})
 		return
 	}
 
-	if err := cc.ChannelService.LeaveChannel(channel, memberID, newLeaderId); err != nil {
+	// Rời nhóm (nếu là leader mà không gửi newLeaderID -> service sẽ báo lỗi)
+	if err := cc.ChannelService.LeaveChannel(channel, memberID, newLeaderID); err != nil {
 		ctx.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Lưu thay đổi vào DB
+	if err := cc.ChannelService.UpdateChannel(channel); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update channel"})
 		return
 	}
 

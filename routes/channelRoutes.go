@@ -16,14 +16,14 @@ func SetupChannelRoutes(router *gin.Engine) {
 	channelRoutes := router.Group("/api/channels", middleware.AuthMiddleware(), middleware.CurrentUserMiddleware())
 	{
 		channelRoutes.POST("", channelController.CreateChannelHandler)
-		channelRoutes.PUT("/:channelId/members/:memberId", channelController.AddMemberHandler)
-		channelRoutes.DELETE("/:channelId/members/:memberId", channelController.RemoveMemberHandler)
-		channelRoutes.GET("/:channelId/members", channelController.ListMembersHandler)
-		channelRoutes.PUT("/:channelId/approval", channelController.ToggleApprovalHandler)
-		channelRoutes.POST("/:channelId/leave/:memberId", channelController.LeaveChannelHandler)                 // Thành viên rời khỏi kênh
-		channelRoutes.DELETE("/:channelId/dissolve/:leaderId", channelController.DissolveChannelHandler)         // Giải tán kênh
-		channelRoutes.POST("/:channelId/block/:blockerId/:memberId", channelController.BlockMemberHandler)       // Chặn thành viên
-		channelRoutes.POST("/:channelId/unblock/:unblockerId/:memberId", channelController.UnblockMemberHandler) // Bỏ chặn thành viên
+		channelRoutes.PUT("/:channelID/members/:memberID", channelController.AddMemberHandler)
+		channelRoutes.DELETE("/:channelID/members/:memberID", channelController.RemoveMemberHandler)
+		channelRoutes.GET("/:channelID/members", channelController.ListMembersHandler)
+		channelRoutes.PUT("/:channelID/approval", channelController.ToggleApprovalHandler)
+		channelRoutes.POST("/:channelID/leave/:memberID", channelController.LeaveChannelHandler)                 // Thành viên rời khỏi kênh
+		channelRoutes.DELETE("/:channelID/dissolve/:leaderID", channelController.DissolveChannelHandler)         // Giải tán kênh
+		channelRoutes.POST("/:channelID/block/:blockerID/:memberID", channelController.BlockMemberHandler)       // Chặn thành viên
+		channelRoutes.POST("/:channelID/unblock/:unblockerID/:memberID", channelController.UnblockMemberHandler) // Bỏ chặn thành viên
 		channelRoutes.GET("/search", channelController.SearchChannelsHandler)
 		channelRoutes.GET("/user/:userID/channels", channelController.GetUserChannelsHandler)
 		channelRoutes.GET("/find-private-channel", channelController.FindPrivateChannelHandler)

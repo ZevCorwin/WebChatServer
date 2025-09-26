@@ -145,6 +145,7 @@ func (cs *ChannelService) CreateChannel(userID primitive.ObjectID, name string, 
 		channel.ExtraData = map[string]interface{}{
 			"approvalRequired": approvalRequired,
 			"createdAt":        time.Now(),
+			"leader":           userID,
 		}
 	}
 
@@ -201,46 +202,67 @@ func (cs *ChannelService) generateGroupChannelName(memberNames []string) string 
 
 // AddMember Thêm thành viên vào kênh
 func (cs *ChannelService) AddMember(channel *models.Channel, memberID primitive.ObjectID) error {
+	// Kiểm tra quyền
 	if err := cs.HasPermission(channel, "addMember", memberID); err != nil {
 		return err
 	}
 
+	// Kiểm tra trùng
 	for _, member := range channel.Members {
 		if member.MemberID == memberID {
 			return errors.New("Member already exists")
 		}
 	}
-	channel.Members = append(channel.Members, models.ChannelMember{
+
+	// Cập nhật DB
+	collection := cs.DB.Collection("channels")
+	filter := bson.M{"_id": channel.ID}
+	update := bson.M{"$push": bson.M{"members": models.ChannelMember{
 		MemberID: memberID,
 		Role:     models.RoleMember,
-	})
+	}}}
+
+	_, err := collection.UpdateOne(context.TODO(), filter, update)
+	if err != nil {
+		return err
+	}
+
 	return nil
 }
 
 // RemoveMember Xóa thành viên khỏi kênh
 func (cs *ChannelService) RemoveMember(channel *models.Channel, removerID, memberID primitive.ObjectID) error {
-	// Kiểm tra quyền của người thực hiện hành động
+	// 1. Kiểm tra quyền của người thực hiện hành động
 	if err := cs.HasPermission(channel, "removeMember", removerID); err != nil {
 		return err
 	}
 
-	// Kiểm tra thành viên xóa có trong danh sách không
-	memberFound := false
+	// 2. Lấy role của remover và target
+	var removerRole, targetRole models.MemberRole
+	idx := -1
 	for i, member := range channel.Members {
+		if member.MemberID == removerID {
+			removerRole = member.Role
+		}
 		if member.MemberID == memberID {
-			// Xóa thành viên khỏi danh sách
-			channel.Members = append(channel.Members[:i], channel.Members[i+1:]...)
-			memberFound = true
-			break
+			targetRole = member.Role
+			idx = i
 		}
 	}
 
-	// Nếu không tìm thấy thành viên, trả về lỗi
-	if !memberFound {
+	if idx == -1 {
 		return errors.New("member not found in the channel")
 	}
 
-	// Cập nhật kênh trong database
+	// 3. Deputy không được xóa Leader hoặc Deputy
+	if removerRole == models.RoleDeputy && (targetRole == models.RoleLeader || targetRole == models.RoleDeputy) {
+		return errors.New("Deputy cannot remove leader or deputy")
+	}
+
+	// 4. Xóa thành viên khỏi danh sách
+	channel.Members = append(channel.Members[:idx], channel.Members[idx+1:]...)
+
+	// 5. Cập nhật DB
 	if err := cs.UpdateChannel(channel); err != nil {
 		return errors.New("failed to update channel after removing member")
 	}
@@ -346,20 +368,28 @@ func (cs *ChannelService) ToggleApproval(channel *models.Channel, leaderID primi
 }
 
 func (cs *ChannelService) HasPermission(channel *models.Channel, action string, requesterID primitive.ObjectID) error {
-	leaderID, _ := channel.ExtraData["leader"].(primitive.ObjectID)
-	deputyID, _ := channel.ExtraData["deputy"].(primitive.ObjectID)
+	requesterRole := cs.roleOf(channel, requesterID)
 
 	switch action {
 	case "removeMember", "blockMember", "unblockMember":
-		if requesterID != leaderID && requesterID != deputyID {
-			return errors.New("Only leader or deputy can remove members")
+		if requesterRole != models.RoleLeader && requesterRole != models.RoleDeputy {
+			return errors.New("Only leader or deputy can perform this action")
 		}
 	case "dissolveChannel", "toggleApproval":
-		if requesterID != leaderID {
+		if requesterRole != models.RoleLeader {
 			return errors.New("Only the leader can perform this action")
 		}
 	}
 	return nil
+}
+
+func (cs *ChannelService) roleOf(channel *models.Channel, userID primitive.ObjectID) models.MemberRole {
+	for _, m := range channel.Members {
+		if m.MemberID == userID {
+			return m.Role
+		}
+	}
+	return models.RoleMember // nếu không tìm thấy thì mặc định Member
 }
 
 func (cs *ChannelService) ValidateChannel(channel *models.Channel) error {
@@ -405,10 +435,10 @@ func (cs *ChannelService) CheckMemberRole(channel *models.Channel, memberID prim
 }
 
 // Lấy thông tin kênh
-func (cs *ChannelService) GetChannel(channelId primitive.ObjectID) (*models.Channel, error) {
+func (cs *ChannelService) GetChannel(channelID primitive.ObjectID) (*models.Channel, error) {
 	collection := cs.DB.Collection("channels")
 	var channel models.Channel
-	err := collection.FindOne(context.TODO(), bson.M{"_id": channelId}).Decode(&channel)
+	err := collection.FindOne(context.TODO(), bson.M{"_id": channelID}).Decode(&channel)
 	if err != nil {
 		return nil, errors.New("Channel not found")
 	}
