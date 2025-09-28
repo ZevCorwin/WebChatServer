@@ -2,19 +2,16 @@ package routes
 
 import (
 	"chat-app-backend/controllers"
-	"chat-app-backend/services"
 	"github.com/gin-gonic/gin"
 )
 
-func SetupMessageRoutes(router *gin.Engine) {
-	// Khởi tạo services
-	ms := services.NewMessageService()
-	cs := services.NewChannelService()
-	wc := controllers.NewWebRTCController(ms, cs)
-
-	// Khởi tạo controller
-	messageController := controllers.NewMessageController(ms, cs, wc)
-
+func SetupMessageRoutes(router *gin.Engine, messageController *controllers.MessageController) {
 	// Đăng ký routes
 	router.GET("/ws/messages", messageController.HandleWebSocket)
+
+	// Thu hồi tin nhắn
+	router.PUT("/api/messages/:channelID/:messageID/recall", messageController.HandleRecallMessage)
+
+	// Xóa tin nhắn
+	router.DELETE("/api/messages/:channelID/:messageID", messageController.HandleDeleteMessage)
 }

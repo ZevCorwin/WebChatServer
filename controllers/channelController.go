@@ -12,11 +12,15 @@ import (
 )
 
 type ChannelController struct {
-	ChannelService *services.ChannelService
+	ChannelService   *services.ChannelService
+	WebRTCController *WebRTCController
 }
 
-func NewChannelController(service *services.ChannelService) *ChannelController {
-	return &ChannelController{ChannelService: service}
+func NewChannelController(service *services.ChannelService, wc *WebRTCController) *ChannelController {
+	return &ChannelController{
+		ChannelService:   service,
+		WebRTCController: wc,
+	}
 }
 
 // Tạo kênh
@@ -85,7 +89,7 @@ func (cc *ChannelController) RemoveMemberHandler(ctx *gin.Context) {
 	channelIdStr := ctx.Param("channelID")
 	memberIdStr := ctx.Param("memberID")
 
-	// Lấy user từ JWT middleware (đã xác thực thành công trước đó)
+	// Lấy user từ JWT middleware
 	userID := ctx.GetString("user_id")
 	removerID, err := primitive.ObjectIDFromHex(userID)
 	if err != nil {
@@ -111,24 +115,27 @@ func (cc *ChannelController) RemoveMemberHandler(ctx *gin.Context) {
 		return
 	}
 
-	// Log thông tin role hiện tại để debug
+	// Log role của người xóa để debug
 	for _, m := range channel.Members {
 		if m.MemberID == removerID {
 			log.Printf("[RemoveMember] remover=%s role=%s", removerID.Hex(), m.Role)
 		}
 	}
 
-	// Thực hiện xóa thành viên
+	// Gọi service để xóa thành viên (service sẽ tự update DB)
 	if err := cc.ChannelService.RemoveMember(channel, removerID, memberID); err != nil {
 		ctx.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Cập nhật DB
-	if err := cc.ChannelService.UpdateChannel(channel); err != nil {
-		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update channel"})
-		return
+	// Broadcast realtime
+	event := map[string]interface{}{
+		"type":      "member_removed",
+		"channelId": channel.ID.Hex(),
+		"memberId":  memberID.Hex(),
+		"by":        removerID.Hex(),
 	}
+	cc.WebRTCController.BroadcastMessage(channel.ID, event)
 
 	ctx.JSON(http.StatusOK, gin.H{"message": "Member removed successfully"})
 }
@@ -151,6 +158,30 @@ func (cc *ChannelController) ListMembersHandler(ctx *gin.Context) {
 	members := cc.ChannelService.ListMembers(channel)
 
 	ctx.JSON(http.StatusOK, gin.H{"members": members})
+}
+
+func (cc *ChannelController) ListBlockedMembersHandler(ctx *gin.Context) {
+	channelIdStr := ctx.Param("channelID")
+
+	channelID, err := primitive.ObjectIDFromHex(channelIdStr)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid channel id"})
+		return
+	}
+
+	channel, err := cc.ChannelService.GetChannel(channelID)
+	if err != nil {
+		ctx.JSON(http.StatusNotFound, gin.H{"error": "Channel not found"})
+		return
+	}
+
+	blocked, err := cc.ChannelService.ListBlockedMembers(channel)
+	if err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch blocked members"})
+		return
+	}
+
+	ctx.JSON(http.StatusOK, gin.H{"blockedMembers": blocked})
 }
 
 // Bật/tắt phê duyệt
@@ -286,18 +317,19 @@ func (cc *ChannelController) DissolveChannelHandler(ctx *gin.Context) {
 // Chặn thành viên
 func (cc *ChannelController) BlockMemberHandler(ctx *gin.Context) {
 	channelIdStr := ctx.Param("channelID")
-	blockerIdStr := ctx.Param("blockID")
 	memberIdStr := ctx.Param("memberID")
+
+	//Lấy user từ JWT middleware
+	userID := ctx.GetString("user_id")
+	blockerID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid blocker ID"})
+		return
+	}
 
 	channelID, err := primitive.ObjectIDFromHex(channelIdStr)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid channel id"})
-		return
-	}
-
-	blockerID, err := primitive.ObjectIDFromHex(blockerIdStr)
-	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid blocker ID"})
 		return
 	}
 
@@ -318,24 +350,29 @@ func (cc *ChannelController) BlockMemberHandler(ctx *gin.Context) {
 		return
 	}
 
+	if err := cc.ChannelService.UpdateChannel(channel); err != nil {
+		ctx.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update channel"})
+		return
+	}
+
 	ctx.JSON(http.StatusOK, gin.H{"message": "Block member successfully"})
 }
 
 // Bỏ chăn thành viên
 func (cc *ChannelController) UnblockMemberHandler(ctx *gin.Context) {
 	channelIdStr := ctx.Param("channelID")
-	unblockerIdStr := ctx.Param("unblockID")
 	memberIdStr := ctx.Param("memberID")
+
+	userID := ctx.GetString("user_id")
+	unblockerID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid unblocker ID"})
+		return
+	}
 
 	channelID, err := primitive.ObjectIDFromHex(channelIdStr)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid channel id"})
-		return
-	}
-
-	unblockerID, err := primitive.ObjectIDFromHex(unblockerIdStr)
-	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid unblocker ID"})
 		return
 	}
 
@@ -355,6 +392,13 @@ func (cc *ChannelController) UnblockMemberHandler(ctx *gin.Context) {
 		ctx.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
 		return
 	}
+
+	cc.WebRTCController.BroadcastMessage(channel.ID, map[string]interface{}{
+		"type":      "member_unblocked",
+		"channelId": channel.ID.Hex(),
+		"memberId":  memberID.Hex(),
+		"by":        unblockerID.Hex(),
+	})
 
 	ctx.JSON(http.StatusOK, gin.H{"message": "Unblock member successfully"})
 }

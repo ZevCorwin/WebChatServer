@@ -119,7 +119,7 @@ func (ms *MessageService) SendMessage(channelID, senderID primitive.ObjectID, co
 
 	// lưu cả id và nội dung tin nhắn cuối
 	update := bson.M{
-		"$push": bson.M{"messages": message.ID},
+		"$push": bson.M{"message": message.ID},
 		"$set": bson.M{
 			"channelID": channelID,
 			"lastMessage": models.LastMessagePreview{

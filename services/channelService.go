@@ -214,6 +214,13 @@ func (cs *ChannelService) AddMember(channel *models.Channel, memberID primitive.
 		}
 	}
 
+	// Kiểm tra xem có trong danh sách bị chặn không
+	for _, blocked := range channel.BlockMembers {
+		if blocked == memberID {
+			return errors.New("This member is blocked and cannot be re-added")
+		}
+	}
+
 	// Cập nhật DB
 	collection := cs.DB.Collection("channels")
 	filter := bson.M{"_id": channel.ID}
@@ -232,37 +239,26 @@ func (cs *ChannelService) AddMember(channel *models.Channel, memberID primitive.
 
 // RemoveMember Xóa thành viên khỏi kênh
 func (cs *ChannelService) RemoveMember(channel *models.Channel, removerID, memberID primitive.ObjectID) error {
-	// 1. Kiểm tra quyền của người thực hiện hành động
+	// 1. Kiểm tra quyền
 	if err := cs.HasPermission(channel, "removeMember", removerID); err != nil {
 		return err
 	}
 
-	// 2. Lấy role của remover và target
-	var removerRole, targetRole models.MemberRole
+	// 2. Tìm và xóa
 	idx := -1
 	for i, member := range channel.Members {
-		if member.MemberID == removerID {
-			removerRole = member.Role
-		}
 		if member.MemberID == memberID {
-			targetRole = member.Role
 			idx = i
+			break
 		}
 	}
-
 	if idx == -1 {
 		return errors.New("member not found in the channel")
 	}
 
-	// 3. Deputy không được xóa Leader hoặc Deputy
-	if removerRole == models.RoleDeputy && (targetRole == models.RoleLeader || targetRole == models.RoleDeputy) {
-		return errors.New("Deputy cannot remove leader or deputy")
-	}
-
-	// 4. Xóa thành viên khỏi danh sách
 	channel.Members = append(channel.Members[:idx], channel.Members[idx+1:]...)
 
-	// 5. Cập nhật DB
+	// 3. Update DB
 	if err := cs.UpdateChannel(channel); err != nil {
 		return errors.New("failed to update channel after removing member")
 	}
@@ -302,55 +298,92 @@ func (cs *ChannelService) DissolveChannel(channel *models.Channel, leaderID prim
 	return nil
 }
 
-// Chặn thành viên
-func (cs *ChannelService) BlockMember(channel *models.Channel, blockID, memberID primitive.ObjectID) error {
-	leaderID, ok := channel.ExtraData["leader"].(primitive.ObjectID)
-	if !ok {
-		return errors.New("Leader is not set or has invalid type")
-	}
-	deputyID, _ := channel.ExtraData["deputy"].(primitive.ObjectID)
+// BlockMember chặn thành viên (đồng thời xóa khỏi nhóm)
+func (cs *ChannelService) BlockMember(channel *models.Channel, blockerID, memberID primitive.ObjectID) error {
+	var blockerRole, targetRole models.MemberRole
+	idx := -1
 
-	if blockID != leaderID && blockID != deputyID {
+	for i, m := range channel.Members {
+		if m.MemberID == blockerID {
+			blockerRole = m.Role
+		}
+		if m.MemberID == memberID {
+			targetRole = m.Role
+			idx = i
+		}
+	}
+
+	if blockerRole != models.RoleLeader && blockerRole != models.RoleDeputy {
 		return errors.New("Only leader or deputy can block members")
 	}
 
-	if blockID == memberID {
+	if blockerID == memberID {
 		return errors.New("Cannot block yourself")
 	}
 
+	// Không cho chặn leader hoặc deputy
+	if targetRole == models.RoleLeader || targetRole == models.RoleDeputy {
+		return errors.New("Cannot block leader or deputy")
+	}
+
+	// Nếu chưa có trong BlockMembers thì thêm vào
 	for _, blocked := range channel.BlockMembers {
 		if blocked == memberID {
 			return errors.New("Member is already blocked")
 		}
 	}
-
 	channel.BlockMembers = append(channel.BlockMembers, memberID)
+
+	// Xóa khỏi Members nếu có trong danh sách
+	if idx != -1 {
+		channel.Members = append(channel.Members[:idx], channel.Members[idx+1:]...)
+	}
+
+	// Cập nhật DB
+	if err := cs.UpdateChannel(channel); err != nil {
+		return errors.New("failed to update channel after blocking member")
+	}
+
 	return nil
 }
 
-// Bỏ chặn thành viên
-func (cs *ChannelService) UnblockMember(channel *models.Channel, unblockedID, memberID primitive.ObjectID) error {
-	leaderID, ok := channel.ExtraData["leader"].(primitive.ObjectID)
-	if !ok {
-		return errors.New("Leader is not set or has invalid type")
-	}
-	deputyID, _ := channel.ExtraData["deputy"].(primitive.ObjectID)
-
-	if unblockedID != leaderID && unblockedID != deputyID {
-		return errors.New("Only leader or deputy can unblock members")
-	}
-
-	if unblockedID == memberID {
-		return errors.New("Cannot unblock yourself")
-	}
-
-	for i, blocked := range channel.BlockMembers {
-		if blocked == memberID {
-			channel.BlockMembers = append(channel.BlockMembers[:i], channel.BlockMembers[i+1:]...)
-			return nil
+// UnblockMember bỏ chặn thành viên
+func (cs *ChannelService) UnblockMember(channel *models.Channel, unblockerID, memberID primitive.ObjectID) error {
+	// 1) Lấy role người thực hiện từ channel.Members (đồng bộ với BlockMember)
+	var unblockerRole models.MemberRole
+	for _, m := range channel.Members {
+		if m.MemberID == unblockerID {
+			unblockerRole = m.Role
+			break
 		}
 	}
-	return errors.New("Member is not in the blocked list")
+	// 2) Chỉ Leader/Deputy được bỏ chặn
+	if unblockerRole != models.RoleLeader && unblockerRole != models.RoleDeputy {
+		return errors.New("Only leader or deputy can unblock members")
+	}
+	// 3) Không tự bỏ chặn chính mình (tuỳ chính sách, giữ giống BlockMember)
+	if unblockerID == memberID {
+		return errors.New("Cannot unblock yourself")
+	}
+	// 4) Tìm trong danh sách BlockMembers
+	idx := -1
+	for i, blocked := range channel.BlockMembers {
+		if blocked == memberID {
+			idx = i
+			break
+		}
+	}
+	if idx == -1 {
+		return errors.New("Member is not in the blocked list")
+	}
+	// 5) Xoá khỏi BlockMembers
+	channel.BlockMembers = append(channel.BlockMembers[:idx], channel.BlockMembers[idx+1:]...)
+
+	// 6) Cập nhật DB
+	if err := cs.UpdateChannel(channel); err != nil {
+		return errors.New("failed to update channel after unblocking member")
+	}
+	return nil
 }
 
 // Trưởng nhóm bật tắt chức năng phê duyệt
@@ -417,6 +450,48 @@ func (cs *ChannelService) ValidateChannel(channel *models.Channel) error {
 // Lấy danh sách thành viên
 func (cs *ChannelService) ListMembers(channel *models.Channel) []models.ChannelMember {
 	return channel.Members
+}
+
+func (cs *ChannelService) ListBlockedMembers(channel *models.Channel) ([]map[string]interface{}, error) {
+	var blocked []map[string]interface{}
+	userColl := cs.DB.Collection("users")
+
+	log.Printf("[ListBlockedMembers] ChannelID=%s, BlockMembers=%v", channel.ID.Hex(), channel.BlockMembers)
+
+	for _, memberID := range channel.BlockMembers {
+		log.Printf("[ListBlockedMembers] Đang xử lý memberID=%s", memberID.Hex())
+
+		var user struct {
+			ID     primitive.ObjectID `bson:"_id"`
+			Name   string             `bson:"name"`
+			Avatar string             `bson:"avatar"`
+			Phone  string             `bson:"phone"`
+		}
+
+		err := userColl.FindOne(context.TODO(), bson.M{"_id": memberID}).Decode(&user)
+		if err != nil {
+			log.Printf("[ListBlockedMembers] ❌ Không tìm thấy user với ID=%s, error=%v", memberID.Hex(), err)
+			blocked = append(blocked, map[string]interface{}{
+				"memberId": memberID.Hex(),
+				"name":     "Người dùng không tồn tại",
+				"avatar":   "/default-avatar.png",
+				"phone":    "",
+			})
+			continue
+		}
+
+		log.Printf("[ListBlockedMembers] ✅ Tìm thấy user: %+v", user)
+
+		blocked = append(blocked, map[string]interface{}{
+			"memberId": user.ID.Hex(),
+			"name":     user.Name,
+			"avatar":   "http://localhost:8080" + user.Avatar,
+			"phone":    user.Phone,
+		})
+	}
+
+	log.Printf("[ListBlockedMembers] Hoàn tất, tổng số=%d", len(blocked))
+	return blocked, nil
 }
 
 // Xác minh vai trò thành viên

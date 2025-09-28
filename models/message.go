@@ -34,13 +34,14 @@ type LastMessagePreview struct {
 }
 
 type Message struct {
-	ID          primitive.ObjectID  `bson:"_id" json:"id"`
-	Content     string              `bson:"content" json:"content"`
-	Timestamp   time.Time           `bson:"timestamp" json:"timestamp"`
-	MessageType MessageType         `bson:"messageType" json:"messageType"`
-	SenderID    primitive.ObjectID  `bson:"senderId" json:"senderId"`
-	Status      MessageStatus       `bson:"status" json:"status"`
-	Recalled    bool                `bson:"recalled" json:"recalled"`
-	URL         string              `json:"url" bson:"url"`
-	FileID      *primitive.ObjectID `bson:"fileId" json:"fileId"`
+	ID          primitive.ObjectID   `bson:"_id" json:"id"`
+	Content     string               `bson:"content" json:"content"`
+	Timestamp   time.Time            `bson:"timestamp" json:"timestamp"`
+	MessageType MessageType          `bson:"messageType" json:"messageType"`
+	SenderID    primitive.ObjectID   `bson:"senderId" json:"senderId"`
+	Status      MessageStatus        `bson:"status" json:"status"`
+	Recalled    bool                 `bson:"recalled" json:"recalled"`
+	HiddenBy    []primitive.ObjectID `bson:"hiddenBy,omitempty" json:"-"`
+	URL         string               `json:"url" bson:"url"`
+	FileID      *primitive.ObjectID  `bson:"fileId" json:"fileId"`
 }

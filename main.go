@@ -2,25 +2,34 @@ package main
 
 import (
 	"chat-app-backend/config"
+	"chat-app-backend/controllers"
 	"chat-app-backend/routes"
+	"chat-app-backend/services"
 	"github.com/gin-contrib/cors"
 	"log"
 	"time"
 )
 
 func main() {
-	// Kết nối cơ sở dữ liệu
-	// Mới
+	// Kết nối DB
 	config.InitDB()
-	//db := config.DB
-
-	// Nạp cấu hình
 	cfg := config.LoadConfig()
 
-	// Khởi tạo router với tất cả routes
-	router := routes.SetupRouter()
-	router.Static("/uploads", "./uploads")
+	// --- Services ---
+	messageService := services.NewMessageService()
+	channelService := services.NewChannelService()
 
+	// --- WebRTCController ---
+	webrtcController := controllers.NewWebRTCController(messageService, channelService)
+
+	// --- Controllers ---
+	messageController := controllers.NewMessageController(messageService, channelService, webrtcController)
+	channelController := controllers.NewChannelController(channelService, webrtcController)
+
+	// --- Router (gom routes trong index.go) ---
+	router := routes.SetupRouter(messageController, channelController)
+
+	router.Static("/uploads", "./uploads")
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:3000"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE"},
@@ -30,14 +39,13 @@ func main() {
 		MaxAge:           12 * time.Hour,
 	}))
 
-	// Chạy server trên cổng từ biến môi trường
+	// Run server
 	port := cfg.AppPort
 	if port == "" {
-		port = "8080" // Mặc định là 8080 nếu không có biến môi trường
+		port = "8080"
 	}
 	log.Printf("Server is running on port %s...", port)
 	if err := router.Run(":" + port); err != nil {
 		log.Fatalf("Không thể khởi động server: %v", err)
 	}
-
 }

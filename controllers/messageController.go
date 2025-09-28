@@ -195,3 +195,75 @@ func (mc *MessageController) HandleWebSocket(ctx *gin.Context) {
 		mc.WebRTCController.BroadcastMessage(channelID, response)
 	}
 }
+
+// Thu hồi tin nhắn (chỉ đánh dấu recalled = true)
+func (mc *MessageController) HandleRecallMessage(ctx *gin.Context) {
+	channelIDHex := ctx.Param("channelID")
+	messageIDHex := ctx.Param("messageID")
+	userID := ctx.GetString("userID") // middleware JWT sẽ parse userID
+
+	channelID, err1 := primitive.ObjectIDFromHex(channelIDHex)
+	messageID, err2 := primitive.ObjectIDFromHex(messageIDHex)
+	if err1 != nil || err2 != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "ID không hợp lệ"})
+		return
+	}
+
+	userObjID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "UserID không hợp lệ"})
+		return
+	}
+
+	err = mc.MessageService.RecallMessage(messageID, channelID, userObjID)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Broadcast tới các client
+	response := map[string]interface{}{
+		"id":        messageID.Hex(),
+		"channelId": channelID.Hex(),
+		"recalled":  true,
+	}
+	mc.WebRTCController.BroadcastMessage(channelID, response)
+
+	ctx.JSON(http.StatusOK, gin.H{"message": "Thu hồi tin nhắn thành công"})
+}
+
+// Xóa tin nhắn (xóa hẳn DB)
+func (mc *MessageController) HandleDeleteMessage(ctx *gin.Context) {
+	channelIDHex := ctx.Param("channelID")
+	messageIDHex := ctx.Param("messageID")
+	userID := ctx.GetString("userID")
+
+	channelID, err1 := primitive.ObjectIDFromHex(channelIDHex)
+	messageID, err2 := primitive.ObjectIDFromHex(messageIDHex)
+	if err1 != nil || err2 != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "ID không hợp lệ"})
+		return
+	}
+
+	userObjID, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "UserID không hợp lệ"})
+		return
+	}
+
+	err = mc.MessageService.DeleteMessage(messageID, channelID, userObjID)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// Broadcast cho các client khác biết tin nhắn đã bị xóa
+	response := map[string]interface{}{
+		"id":        messageID.Hex(),
+		"channelId": channelID.Hex(),
+		"deleted":   true,
+	}
+	mc.WebRTCController.BroadcastMessage(channelID, response)
+
+	ctx.JSON(http.StatusOK, gin.H{"message": "Xóa tin nhắn thành công"})
+}
