@@ -177,3 +177,87 @@ func (ms *MessageService) hasRole(channel *models.Channel, userID primitive.Obje
 	}
 	return false
 }
+
+// Tìm channelID từ messageID bằng chathistory
+func (ms *MessageService) findChannelIDByMessage(messageID primitive.ObjectID) (primitive.ObjectID, error) {
+	var out struct {
+		ChannelID primitive.ObjectID `bson:"channelID"`
+	}
+	// support cả "message" lẫn "messages" đề phòng dữ liệu cũ
+	filter := bson.M{
+		"$or": []bson.M{
+			{"message": messageID},
+			{"messages": messageID},
+			{"lastMessage.id": messageID},
+		},
+	}
+	err := ms.DB.Collection("chathistory").FindOne(context.Background(), filter).Decode(&out)
+	if err != nil {
+		return primitive.NilObjectID, err
+	}
+	return out.ChannelID, nil
+}
+
+// Ẩn message cho 1 user (xóa cục bộ)
+func (ms *MessageService) HideMessage(messageID, userID primitive.ObjectID) (primitive.ObjectID, error) {
+	// addToSet userID vào hiddenBy
+	res, err := ms.DB.Collection("messages").UpdateOne(
+		context.Background(),
+		bson.M{"_id": messageID},
+		bson.M{"$addToSet": bson.M{"hiddenBy": userID}},
+	)
+	if err != nil {
+		return primitive.NilObjectID, err
+	}
+	if res.MatchedCount == 0 {
+		return primitive.NilObjectID, errors.New("Message not found")
+	}
+
+	// tìm channelID để FE biết đang ẩn trong kênh nào (phục vụ NotifyUser)
+	chID, err := ms.findChannelIDByMessage(messageID)
+	if err != nil {
+		// không critical, vẫn cho ẩn thành công
+		log.Printf("[HideMessage] warn: cannot find channelID for message %s: %v", messageID.Hex(), err)
+	}
+	return chID, nil
+}
+
+const DefaultRecallWindow = 2 * time.Minute
+
+// Thu hồi message (toàn cục) — chỉ người gửi, trong khoảng thời gian cho phép
+func (ms *MessageService) RecallMessage(messageID, requesterID primitive.ObjectID, window time.Duration) (primitive.ObjectID, error) {
+	var msg models.Message
+	if err := ms.DB.Collection("messages").FindOne(context.Background(), bson.M{"_id": messageID}).Decode(&msg); err != nil {
+		return primitive.NilObjectID, errors.New("Message not found")
+	}
+	if msg.SenderID != requesterID {
+		return primitive.NilObjectID, errors.New("Only sender can recall this message")
+	}
+	if time.Since(msg.Timestamp) > window {
+		return primitive.NilObjectID, errors.New("Recall window has expired")
+	}
+
+	// set recalled = true (không xóa nội dung để dễ audit; FE sẽ hiển thị 'đã thu hồi')
+	_, err := ms.DB.Collection("messages").UpdateOne(
+		context.Background(),
+		bson.M{"_id": messageID},
+		bson.M{"$set": bson.M{"recalled": true}},
+	)
+	if err != nil {
+		return primitive.NilObjectID, err
+	}
+
+	// Nếu message vừa thu hồi là lastMessage, cập nhật preview thành “Tin nhắn đã bị thu hồi”
+	chID, err := ms.findChannelIDByMessage(messageID)
+	if err == nil {
+		_, _ = ms.DB.Collection("chathistory").UpdateOne(
+			context.Background(),
+			bson.M{"channelID": chID, "lastMessage.id": messageID},
+			bson.M{"$set": bson.M{"lastMessage.content": "Tin nhắn đã bị thu hồi"}},
+		)
+	} else {
+		log.Printf("[RecallMessage] warn: cannot find channelID for message %s: %v", messageID.Hex(), err)
+	}
+
+	return chID, nil
+}

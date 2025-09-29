@@ -87,6 +87,18 @@ func (chs *ChatHistoryService) GetChatHistory(channelID, userID primitive.Object
 			continue
 		}
 
+		// BỎ nếu user này đã ẩn tin nhắn
+		skip := false
+		for _, h := range msg.HiddenBy {
+			if h == userID {
+				skip = true
+				break
+			}
+		}
+		if skip {
+			continue
+		}
+
 		var sender models.User
 		_ = userCollection.FindOne(ctx, bson.M{"_id": msg.SenderID}).Decode(&sender)
 

@@ -196,74 +196,75 @@ func (mc *MessageController) HandleWebSocket(ctx *gin.Context) {
 	}
 }
 
-// Thu hồi tin nhắn (chỉ đánh dấu recalled = true)
-func (mc *MessageController) HandleRecallMessage(ctx *gin.Context) {
-	channelIDHex := ctx.Param("channelID")
-	messageIDHex := ctx.Param("messageID")
-	userID := ctx.GetString("userID") // middleware JWT sẽ parse userID
-
-	channelID, err1 := primitive.ObjectIDFromHex(channelIDHex)
-	messageID, err2 := primitive.ObjectIDFromHex(messageIDHex)
-	if err1 != nil || err2 != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "ID không hợp lệ"})
+// Thu hồi tin nhắn — POST /api/messages/:messageID/recall
+func (mc *MessageController) RecallMessageHandler(ctx *gin.Context) {
+	userIDHex := ctx.GetString("user_id")
+	if userIDHex == "" {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
-
-	userObjID, err := primitive.ObjectIDFromHex(userID)
+	requesterID, err := primitive.ObjectIDFromHex(userIDHex)
 	if err != nil {
-		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "UserID không hợp lệ"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user id"})
 		return
 	}
 
-	err = mc.MessageService.RecallMessage(messageID, channelID, userObjID)
+	msgHex := ctx.Param("messageID")
+	msgID, err := primitive.ObjectIDFromHex(msgHex)
 	if err != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid message id"})
 		return
 	}
 
-	// Broadcast tới các client
-	response := map[string]interface{}{
-		"id":        messageID.Hex(),
-		"channelId": channelID.Hex(),
-		"recalled":  true,
+	chID, err := mc.MessageService.RecallMessage(msgID, requesterID, services.DefaultRecallWindow)
+	if err != nil {
+		ctx.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
 	}
-	mc.WebRTCController.BroadcastMessage(channelID, response)
 
-	ctx.JSON(http.StatusOK, gin.H{"message": "Thu hồi tin nhắn thành công"})
+	// Broadcast tới cả kênh: message đã bị thu hồi
+	mc.WebRTCController.BroadcastMessage(chID, gin.H{
+		"type":      "message_recalled",
+		"channelId": chID.Hex(),
+		"messageId": msgID.Hex(),
+		"by":        requesterID.Hex(),
+	})
+
+	ctx.JSON(http.StatusOK, gin.H{"message": "Recalled successfully"})
 }
 
-// Xóa tin nhắn (xóa hẳn DB)
-func (mc *MessageController) HandleDeleteMessage(ctx *gin.Context) {
-	channelIDHex := ctx.Param("channelID")
-	messageIDHex := ctx.Param("messageID")
-	userID := ctx.GetString("userID")
-
-	channelID, err1 := primitive.ObjectIDFromHex(channelIDHex)
-	messageID, err2 := primitive.ObjectIDFromHex(messageIDHex)
-	if err1 != nil || err2 != nil {
-		ctx.JSON(http.StatusBadRequest, gin.H{"error": "ID không hợp lệ"})
+// Ẩn tin nhắn cho riêng người gọi — DELETE /api/messages/:messageID/hide
+func (mc *MessageController) HideMessageHandler(ctx *gin.Context) {
+	userIDHex := ctx.GetString("user_id")
+	if userIDHex == "" {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Unauthorized"})
 		return
 	}
-
-	userObjID, err := primitive.ObjectIDFromHex(userID)
+	userID, err := primitive.ObjectIDFromHex(userIDHex)
 	if err != nil {
-		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "UserID không hợp lệ"})
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid user id"})
 		return
 	}
 
-	err = mc.MessageService.DeleteMessage(messageID, channelID, userObjID)
+	msgHex := ctx.Param("messageID")
+	msgID, err := primitive.ObjectIDFromHex(msgHex)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "Invalid message id"})
+		return
+	}
+
+	chID, err := mc.MessageService.HideMessage(msgID, userID)
 	if err != nil {
 		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
-	// Broadcast cho các client khác biết tin nhắn đã bị xóa
-	response := map[string]interface{}{
-		"id":        messageID.Hex(),
-		"channelId": channelID.Hex(),
-		"deleted":   true,
-	}
-	mc.WebRTCController.BroadcastMessage(channelID, response)
+	// Notify riêng user này để FE xoá item khỏi UI (không broadcast cho cả kênh)
+	mc.WebRTCController.NotifyUser(userIDHex, gin.H{
+		"type":      "message_hidden",
+		"channelId": chID.Hex(),
+		"messageId": msgID.Hex(),
+	})
 
-	ctx.JSON(http.StatusOK, gin.H{"message": "Xóa tin nhắn thành công"})
+	ctx.JSON(http.StatusOK, gin.H{"message": "Hidden locally"})
 }

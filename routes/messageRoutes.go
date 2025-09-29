@@ -2,6 +2,7 @@ package routes
 
 import (
 	"chat-app-backend/controllers"
+	"chat-app-backend/middleware"
 	"github.com/gin-gonic/gin"
 )
 
@@ -9,9 +10,8 @@ func SetupMessageRoutes(router *gin.Engine, messageController *controllers.Messa
 	// Đăng ký routes
 	router.GET("/ws/messages", messageController.HandleWebSocket)
 
-	// Thu hồi tin nhắn
-	router.PUT("/api/messages/:channelID/:messageID/recall", messageController.HandleRecallMessage)
-
-	// Xóa tin nhắn
-	router.DELETE("/api/messages/:channelID/:messageID", messageController.HandleDeleteMessage)
+	protected := router.Group("/api")
+	protected.Use(middleware.AuthMiddleware())
+	protected.POST("/messages/:messageID/recall", middleware.AuthMiddleware(), messageController.RecallMessageHandler)
+	protected.DELETE("/messages/:messageID/hide", middleware.AuthMiddleware(), messageController.HideMessageHandler)
 }
