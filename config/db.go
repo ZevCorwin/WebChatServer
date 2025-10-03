@@ -62,5 +62,31 @@ func ConnectDB() *mongo.Database {
 		log.Printf("Không thể tạo TTL index cho OTP: %v", err)
 	}
 
+	// ✅ GỌI tạo index cho messages
+	if err := ensureMessageIndexes(db); err != nil {
+		log.Printf("Không thể tạo index cho messages: %v", err)
+	}
+
 	return db
+}
+
+// ensureMessageIndexes: tạo index phục vụ query theo channel + thời gian
+func ensureMessageIndexes(db *mongo.Database) error {
+	coll := db.Collection("messages")
+
+	// channelID + timestamp (phân trang/time sort)
+	_, err := coll.Indexes().CreateOne(context.Background(), mongo.IndexModel{
+		Keys:    bson.D{{Key: "channelID", Value: 1}, {Key: "timestamp", Value: 1}},
+		Options: options.Index().SetName("channelID_timestamp_idx"),
+	})
+	if err != nil {
+		return err
+	}
+
+	// hiddenBy để lọc nhanh (không bắt buộc, nhưng nên có)
+	_, err = coll.Indexes().CreateOne(context.Background(), mongo.IndexModel{
+		Keys:    bson.D{{Key: "hiddenBy", Value: 1}},
+		Options: options.Index().SetName("hiddenBy_idx"),
+	})
+	return err
 }

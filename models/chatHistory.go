@@ -6,9 +6,9 @@ import (
 )
 
 type ChatHistory struct {
-	ID          primitive.ObjectID   `json:"id" bson:"_id,omitempty"`
-	ChannelID   primitive.ObjectID   `json:"channelID" bson:"channelID"`
-	Message     []primitive.ObjectID `json:"message" bson:"message"`
-	LastActive  time.Time            `json:"lastActive" bson:"lastActive"`
-	LastMessage *LastMessagePreview  `json:"lastMessage,omitempty" bson:"lastMessage,omitempty"`
+	ID        primitive.ObjectID `json:"id" bson:"_id,omitempty"`
+	ChannelID primitive.ObjectID `json:"channelID" bson:"channelID"`
+	//Message     []primitive.ObjectID `json:"message" bson:"message"`
+	LastActive  time.Time           `json:"lastActive" bson:"lastActive"`
+	LastMessage *LastMessagePreview `json:"lastMessage,omitempty" bson:"lastMessage,omitempty"`
 }

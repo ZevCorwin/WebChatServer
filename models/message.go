@@ -35,6 +35,7 @@ type LastMessagePreview struct {
 
 type Message struct {
 	ID          primitive.ObjectID   `bson:"_id" json:"id"`
+	ChannelID   primitive.ObjectID   `bson:"channelID" json:"channelId"`
 	Content     string               `bson:"content" json:"content"`
 	Timestamp   time.Time            `bson:"timestamp" json:"timestamp"`
 	MessageType MessageType          `bson:"messageType" json:"messageType"`

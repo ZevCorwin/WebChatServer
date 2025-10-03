@@ -187,7 +187,7 @@ func (mc *MessageController) HandleWebSocket(ctx *gin.Context) {
 			"recalled":     message.Recalled,
 			"url":          message.URL,
 			"fileId":       message.FileID,
-			"channelId":    incomingMessage.ChannelID,
+			"channelId":    message.ChannelID.Hex(),
 		}
 
 		// Broadcast đến các thành viên kênh

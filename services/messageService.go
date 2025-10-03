@@ -64,6 +64,7 @@ func (ms *MessageService) SendMessage(channelID, senderID primitive.ObjectID, co
 		// Tạo tin nhắn
 		message = &models.Message{
 			ID:          primitive.NewObjectID(),
+			ChannelID:   channelID,
 			Content:     "", // Không lưu trong Content
 			Timestamp:   time.Now(),
 			MessageType: messageType,
@@ -78,6 +79,7 @@ func (ms *MessageService) SendMessage(channelID, senderID primitive.ObjectID, co
 		// Tạo tin nhắn cho Voice hoặc Sticker
 		message = &models.Message{
 			ID:          primitive.NewObjectID(),
+			ChannelID:   channelID,
 			Content:     "", // Không lưu trong Content
 			Timestamp:   time.Now(),
 			MessageType: messageType,
@@ -92,6 +94,7 @@ func (ms *MessageService) SendMessage(channelID, senderID primitive.ObjectID, co
 		// Các loại tin nhắn khác
 		message = &models.Message{
 			ID:          primitive.NewObjectID(),
+			ChannelID:   channelID,
 			Content:     content, // Lưu nội dung vào Content
 			Timestamp:   time.Now(),
 			MessageType: messageType,
@@ -119,7 +122,6 @@ func (ms *MessageService) SendMessage(channelID, senderID primitive.ObjectID, co
 
 	// lưu cả id và nội dung tin nhắn cuối
 	update := bson.M{
-		"$push": bson.M{"message": message.ID},
 		"$set": bson.M{
 			"channelID": channelID,
 			"lastMessage": models.LastMessagePreview{
@@ -178,8 +180,23 @@ func (ms *MessageService) hasRole(channel *models.Channel, userID primitive.Obje
 	return false
 }
 
-// Tìm channelID từ messageID bằng chathistory
+// Tìm channelID từ messageID: ƯU TIÊN đọc từ collection "messages"
+// Fallback sang "chathistory" để an toàn trong thời gian chuyển tiếp.
 func (ms *MessageService) findChannelIDByMessage(messageID primitive.ObjectID) (primitive.ObjectID, error) {
+	// 1) Ưu tiên tra trong messages
+	var m struct {
+		ChannelID primitive.ObjectID `bson:"channelID"`
+	}
+	err := ms.DB.Collection("messages").FindOne(
+		context.Background(),
+		bson.M{"_id": messageID},
+		options.FindOne().SetProjection(bson.M{"channelID": 1}),
+	).Decode(&m)
+	if err == nil && m.ChannelID != primitive.NilObjectID {
+		return m.ChannelID, nil
+	}
+
+	// 2) Fallback tạm thời: tra trong chathistory (để không vỡ dữ liệu cũ)
 	var out struct {
 		ChannelID primitive.ObjectID `bson:"channelID"`
 	}
@@ -191,11 +208,11 @@ func (ms *MessageService) findChannelIDByMessage(messageID primitive.ObjectID) (
 			{"lastMessage.id": messageID},
 		},
 	}
-	err := ms.DB.Collection("chathistory").FindOne(context.Background(), filter).Decode(&out)
-	if err != nil {
-		return primitive.NilObjectID, err
+	if err2 := ms.DB.Collection("chathistory").FindOne(context.Background(), filter).Decode(&out); err2 == nil {
+		return out.ChannelID, nil
 	}
-	return out.ChannelID, nil
+
+	return primitive.NilObjectID, errors.New("channelID not found for message")
 }
 
 // Ẩn message cho 1 user (xóa cục bộ)
