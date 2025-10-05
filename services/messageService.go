@@ -29,7 +29,12 @@ func NewMessageService() *MessageService {
 	}
 }
 
-func (ms *MessageService) SendMessage(channelID, senderID primitive.ObjectID, content string, messageType models.MessageType) (*models.Message, error) {
+func (ms *MessageService) SendMessage(
+	channelID, senderID primitive.ObjectID,
+	content string, messageType models.MessageType,
+	replyTo *primitive.ObjectID,
+	attachments []models.Attachment,
+) (*models.Message, error) {
 	// Sử dụng ChannelService để lấy thông tin kênh
 	log.Printf("[SendMessage] channelID=%s senderID=%s content=%s messageType=%s", channelID.Hex(), senderID.Hex(), content, messageType)
 	channel, err := ms.ChannelService.GetChannel(channelID)
@@ -45,6 +50,9 @@ func (ms *MessageService) SendMessage(channelID, senderID primitive.ObjectID, co
 	}
 
 	var message *models.Message
+	now := time.Now()
+	// recall window 2 phút (như hiện tại)
+	recallDeadline := now.Add(DefaultRecallWindow)
 	switch messageType {
 	case models.MessageTypeFile:
 		// Tạo file và lưu vào collection files
@@ -63,46 +71,55 @@ func (ms *MessageService) SendMessage(channelID, senderID primitive.ObjectID, co
 
 		// Tạo tin nhắn
 		message = &models.Message{
-			ID:          primitive.NewObjectID(),
-			ChannelID:   channelID,
-			Content:     "", // Không lưu trong Content
-			Timestamp:   time.Now(),
-			MessageType: messageType,
-			SenderID:    senderID,
-			Status:      models.MessageStatusSending,
-			Recalled:    false,
-			URL:         "",       // Không lưu trong Url
-			FileID:      &file.ID, // Liên kết với file ID
+			ID:             primitive.NewObjectID(),
+			ChannelID:      channelID,
+			Content:        "", // Không lưu trong Content
+			Timestamp:      now,
+			MessageType:    messageType,
+			SenderID:       senderID,
+			Status:         models.MessageStatusSending,
+			Recalled:       false,
+			URL:            "",       // Không lưu trong Url
+			FileID:         &file.ID, // Liên kết với file ID
+			ReplyTo:        replyTo,
+			RecallDeadline: &recallDeadline,
+			Attachments:    attachments,
 		}
 
 	case models.MessageTypeVoice, models.MessageTypeSticker:
 		// Tạo tin nhắn cho Voice hoặc Sticker
 		message = &models.Message{
-			ID:          primitive.NewObjectID(),
-			ChannelID:   channelID,
-			Content:     "", // Không lưu trong Content
-			Timestamp:   time.Now(),
-			MessageType: messageType,
-			SenderID:    senderID,
-			Status:      models.MessageStatusSending,
-			Recalled:    false,
-			URL:         content, // Lưu URL
-			FileID:      nil,
+			ID:             primitive.NewObjectID(),
+			ChannelID:      channelID,
+			Content:        "", // Không lưu trong Content
+			Timestamp:      now,
+			MessageType:    messageType,
+			SenderID:       senderID,
+			Status:         models.MessageStatusSending,
+			Recalled:       false,
+			URL:            content, // Lưu URL
+			FileID:         nil,
+			ReplyTo:        replyTo,
+			RecallDeadline: &recallDeadline,
+			Attachments:    attachments,
 		}
 
 	default:
 		// Các loại tin nhắn khác
 		message = &models.Message{
-			ID:          primitive.NewObjectID(),
-			ChannelID:   channelID,
-			Content:     content, // Lưu nội dung vào Content
-			Timestamp:   time.Now(),
-			MessageType: messageType,
-			SenderID:    senderID,
-			Status:      models.MessageStatusSending,
-			Recalled:    false,
-			URL:         "", // Không lưu trong Url
-			FileID:      nil,
+			ID:             primitive.NewObjectID(),
+			ChannelID:      channelID,
+			Content:        content, // Lưu nội dung vào Content
+			Timestamp:      now,
+			MessageType:    messageType,
+			SenderID:       senderID,
+			Status:         models.MessageStatusSending,
+			Recalled:       false,
+			URL:            "", // Không lưu trong Url
+			FileID:         nil,
+			ReplyTo:        replyTo,
+			RecallDeadline: &recallDeadline,
+			Attachments:    attachments,
 		}
 	}
 
@@ -120,13 +137,29 @@ func (ms *MessageService) SendMessage(channelID, senderID primitive.ObjectID, co
 	chatHistoryCollection := ms.DB.Collection("chathistory")
 	filter := bson.M{"channelID": channelID}
 
+	// Preview: nếu có attachments → ghi nhãn thay vì content trống
+	previewContent := message.Content
+	if len(message.Attachments) > 0 {
+		switch message.MessageType {
+		case models.MessageTypeFile:
+			previewContent = "[Tệp]"
+		case models.MessageTypeVoice:
+			previewContent = "[Tin nhắn thoại]"
+		case models.MessageTypeSticker:
+			previewContent = "Sticker"
+		default:
+			if previewContent != "" {
+				previewContent = "[Đính kèm]"
+			}
+		}
+	}
 	// lưu cả id và nội dung tin nhắn cuối
 	update := bson.M{
 		"$set": bson.M{
 			"channelID": channelID,
 			"lastMessage": models.LastMessagePreview{
-				ID:      message.ID,      // để sau này dễ fetch lại
-				Content: message.Content, // hiển thị preview nhanh
+				ID:      message.ID,     // để sau này dễ fetch lại
+				Content: previewContent, // hiển thị preview nhanh
 				Type:    string(message.MessageType),
 				Sender:  senderID,
 			},

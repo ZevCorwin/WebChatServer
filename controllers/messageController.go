@@ -124,10 +124,12 @@ func (mc *MessageController) HandleWebSocket(ctx *gin.Context) {
 
 		// Giải mã tin nhắn nhận được
 		var incomingMessage struct {
-			ChannelID   string `json:"channelId"`
-			SenderID    string `json:"senderId"`
-			Content     string `json:"content"`
-			MessageType string `json:"messageType"`
+			ChannelID   string              `json:"channelId"`
+			SenderID    string              `json:"senderId"`
+			Content     string              `json:"content"`
+			MessageType string              `json:"messageType"`
+			ReplyTo     *string             `json:"replyTo"`
+			Attachments []models.Attachment `json:"attachments"`
 		}
 		if err := json.Unmarshal(msg, &incomingMessage); err != nil {
 			log.Printf("Lỗi giải mã tin nhắn: %v", err)
@@ -148,11 +150,21 @@ func (mc *MessageController) HandleWebSocket(ctx *gin.Context) {
 		}
 
 		// Sử dụng MessageService để gửi tin nhắn và lấy dữ liệu phản hồi
+		var replyToOID *primitive.ObjectID
+		if incomingMessage.ReplyTo != nil && *incomingMessage.ReplyTo != "" {
+			if oid, err := primitive.ObjectIDFromHex(*incomingMessage.ReplyTo); err == nil {
+				replyToOID = &oid
+			}
+		}
+
+		// Sử dụng MessageService để gửi tin nhắn và lấy dữ liệu phản hồi
 		message, err := mc.MessageService.SendMessage(
 			channelID,
 			senderID,
 			incomingMessage.Content,
 			models.MessageType(incomingMessage.MessageType),
+			replyToOID,
+			incomingMessage.Attachments,
 		)
 		if err != nil {
 			log.Printf("Lỗi gửi tin nhắn: %v", err)
@@ -176,6 +188,7 @@ func (mc *MessageController) HandleWebSocket(ctx *gin.Context) {
 
 		// Chuẩn hóa phản hồi
 		response := map[string]interface{}{
+			"type":         "message_new",
 			"id":           message.ID.Hex(),
 			"content":      message.Content,
 			"timestamp":    message.Timestamp,
@@ -188,6 +201,8 @@ func (mc *MessageController) HandleWebSocket(ctx *gin.Context) {
 			"url":          message.URL,
 			"fileId":       message.FileID,
 			"channelId":    message.ChannelID.Hex(),
+			"replyTo":      replyToOID,
+			"attachments":  message.Attachments,
 		}
 
 		// Broadcast đến các thành viên kênh

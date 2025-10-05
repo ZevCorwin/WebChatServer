@@ -365,6 +365,14 @@ func (chs *ChatHistoryService) GetChannelMessages(
 	return out, nil
 }
 
+func (chs *ChatHistoryService) GetMessages(channelID, viewerID primitive.ObjectID, before *time.Time, limit int64) ([]map[string]interface{}, error) {
+	var ts time.Time
+	if before != nil {
+		ts = *before
+	}
+	return chs.GetChannelMessages(channelID, viewerID, ts, limit)
+}
+
 // trả về absolute URL cho avatar (lấy từ env PUBLIC_BASE_URL, mặc định localhost)
 func fullAvatarURL(path string) string {
 	if path == "" {

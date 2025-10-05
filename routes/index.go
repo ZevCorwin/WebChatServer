@@ -27,6 +27,8 @@ func SetupRouter(
 	// Cấu hình routes cho ChatHistory
 	SetupChatHistoryRoutes(router)
 
+	SetupFileRoutes(router)
+
 	// Cấu hình routes cho Friend
 	SetupFriendRoutes(router)
 

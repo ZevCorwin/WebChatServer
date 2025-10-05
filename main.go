@@ -30,6 +30,8 @@ func main() {
 	router := routes.SetupRouter(messageController, channelController)
 
 	router.Static("/uploads", "./uploads")
+	router.MaxMultipartMemory = 32 << 20 // 32MB
+
 	router.Use(cors.New(cors.Config{
 		AllowOrigins:     []string{"http://localhost:3000"},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE"},

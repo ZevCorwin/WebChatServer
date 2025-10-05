@@ -62,6 +62,30 @@ func ConnectDB() *mongo.Database {
 		log.Printf("Không thể tạo TTL index cho OTP: %v", err)
 	}
 
+	{
+		_, err := db.Collection("messages").Indexes().CreateMany(context.Background(), []mongo.IndexModel{
+			{
+				Keys:    bson.D{{Key: "channelID", Value: 1}, {Key: "timestamp", Value: -1}},
+				Options: options.Index().SetName("byChannel_time"),
+			},
+			{
+				Keys:    bson.D{{Key: "replyTo", Value: 1}},
+				Options: options.Index().SetName("byReplyTo"),
+			},
+		})
+		if err != nil {
+			log.Printf("Không thể tạo index messages: %v", err)
+		}
+
+		_, err = db.Collection("chathistory").Indexes().CreateOne(context.Background(), mongo.IndexModel{
+			Keys:    bson.D{{Key: "channelID", Value: 1}},
+			Options: options.Index().SetName("byChannel"),
+		})
+		if err != nil {
+			log.Printf("Không thể tạo index chathistory: %v", err)
+		}
+	}
+
 	// ✅ GỌI tạo index cho messages
 	if err := ensureMessageIndexes(db); err != nil {
 		log.Printf("Không thể tạo index cho messages: %v", err)
