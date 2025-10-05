@@ -54,7 +54,7 @@ func (ms *MessageService) SendMessage(
 	// recall window 2 phút (như hiện tại)
 	recallDeadline := now.Add(DefaultRecallWindow)
 	switch messageType {
-	case models.MessageTypeFile:
+	case models.MessageTypeFile, models.MessageTypeVoice:
 		// Tạo file và lưu vào collection files
 		file := &models.File{
 			ID:         primitive.NewObjectID(),
@@ -79,14 +79,14 @@ func (ms *MessageService) SendMessage(
 			SenderID:       senderID,
 			Status:         models.MessageStatusSending,
 			Recalled:       false,
-			URL:            "",       // Không lưu trong Url
+			URL:            file.URL, // Không lưu trong Url
 			FileID:         &file.ID, // Liên kết với file ID
 			ReplyTo:        replyTo,
 			RecallDeadline: &recallDeadline,
 			Attachments:    attachments,
 		}
 
-	case models.MessageTypeVoice, models.MessageTypeSticker:
+	case models.MessageTypeSticker:
 		// Tạo tin nhắn cho Voice hoặc Sticker
 		message = &models.Message{
 			ID:             primitive.NewObjectID(),
