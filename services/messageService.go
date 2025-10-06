@@ -127,6 +127,12 @@ func (ms *MessageService) SendMessage(
 	log.Printf("[SendMessage] Message to insert: %+v", message)
 	collection := ms.DB.Collection("messages")
 	_, err = collection.InsertOne(context.Background(), message)
+	if message.ReplyTo != nil {
+		var parent models.Message
+		if err := collection.FindOne(context.Background(), bson.M{"_id": *message.ReplyTo}).Decode(&parent); err == nil {
+			message.ReplyToMessage = &parent
+		}
+	}
 	if err != nil {
 		log.Printf("[SendMessage] Insert message error: %v", err)
 		return nil, err
@@ -310,4 +316,102 @@ func (ms *MessageService) RecallMessage(messageID, requesterID primitive.ObjectI
 	}
 
 	return chID, nil
+}
+
+const EditWindow = 15 * time.Minute
+
+func (ms *MessageService) EditMessage(messageID, editorID primitive.ObjectID, newContent string) (*models.Message, error) {
+	coll := ms.DB.Collection("messages")
+	var msg models.Message
+	if err := coll.FindOne(context.TODO(), bson.M{"_id": messageID}).Decode(&msg); err != nil {
+		return nil, err
+	}
+
+	// chỉ cho phép owner + trong khung 15'
+	if msg.SenderID != editorID {
+		return nil, errors.New("not your message")
+	}
+	if time.Since(msg.Timestamp) > EditWindow {
+		return nil, errors.New("edit window expired")
+	}
+
+	now := time.Now()
+	_, err := coll.UpdateOne(context.TODO(),
+		bson.M{"_id": messageID},
+		bson.M{"$set": bson.M{
+			"content":  newContent,
+			"edited":   true,
+			"editedAt": now,
+		}},
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := coll.FindOne(context.TODO(), bson.M{"_id": messageID}).Decode(&msg); err != nil {
+		return nil, err
+	}
+	return &msg, nil
+}
+
+func (ms *MessageService) ToggleReaction(messageID, userID primitive.ObjectID, emoji string) (*models.Message, error) {
+	coll := ms.DB.Collection("messages")
+	var msg models.Message
+	if err := coll.FindOne(context.TODO(), bson.M{"_id": messageID}).Decode(&msg); err != nil {
+		return nil, err
+	}
+
+	// tìm reaction theo emoji
+	idx := -1
+	for i, r := range msg.Reactions {
+		if r.Emoji == emoji {
+			idx = i
+			break
+		}
+	}
+
+	changed := false
+	if idx == -1 {
+		// chưa có emoji này → thêm mới
+		msg.Reactions = append(msg.Reactions, models.Reaction{
+			Emoji:   emoji,
+			UserIDs: []primitive.ObjectID{userID},
+		})
+		changed = true
+	} else {
+		// đã có → toggle user
+		found := false
+		users := msg.Reactions[idx].UserIDs
+		for i, uid := range users {
+			if uid == userID {
+				// bỏ reaction
+				msg.Reactions[idx].UserIDs = append(users[:i], users[i+1:]...)
+				found = true
+				changed = true
+				break
+			}
+		}
+		if !found {
+			msg.Reactions[idx].UserIDs = append(users, userID)
+			changed = true
+		}
+		// nếu rỗng thì xoá hẳn reaction đó
+		if len(msg.Reactions[idx].UserIDs) == 0 {
+			msg.Reactions = append(msg.Reactions[:idx], msg.Reactions[idx+1:]...)
+		}
+	}
+
+	if changed {
+		if _, err := coll.UpdateOne(context.TODO(),
+			bson.M{"_id": messageID},
+			bson.M{"$set": bson.M{"reactions": msg.Reactions}},
+		); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := coll.FindOne(context.TODO(), bson.M{"_id": messageID}).Decode(&msg); err != nil {
+		return nil, err
+	}
+	return &msg, nil
 }

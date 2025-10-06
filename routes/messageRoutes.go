@@ -14,4 +14,6 @@ func SetupMessageRoutes(router *gin.Engine, messageController *controllers.Messa
 	protected.Use(middleware.AuthMiddleware())
 	protected.POST("/messages/:messageID/recall", middleware.AuthMiddleware(), messageController.RecallMessageHandler)
 	protected.DELETE("/messages/:messageID/hide", middleware.AuthMiddleware(), messageController.HideMessageHandler)
+	protected.PUT("/messages/:messageID/", messageController.EditMessage)
+	protected.POST("messages/:messageID/reaction", messageController.ToggleReaction)
 }

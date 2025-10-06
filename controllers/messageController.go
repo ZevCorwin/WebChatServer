@@ -15,6 +15,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"sync"
 )
 
@@ -187,6 +188,26 @@ func (mc *MessageController) HandleWebSocket(ctx *gin.Context) {
 		}
 
 		// Chuẩn hóa phản hồi
+		var replyPreview map[string]interface{}
+		if message.ReplyTo != nil && message.ReplyToMessage != nil {
+			replyPreview = map[string]interface{}{
+				"id":       message.ReplyToMessage.ID.Hex(),
+				"content":  message.ReplyToMessage.Content,
+				"senderId": message.ReplyToMessage.SenderID.Hex(),
+				"senderName": func() string {
+					var u struct {
+						Name string `bson:"name"`
+					}
+					_ = mc.MessageService.DB.Collection("users").FindOne(
+						context.TODO(),
+						bson.M{"_id": message.ReplyToMessage.SenderID},
+					).Decode(&u)
+					return u.Name
+				}(),
+				"messageType": message.ReplyToMessage.MessageType,
+			}
+		}
+
 		response := map[string]interface{}{
 			"type":         "message_new",
 			"id":           message.ID.Hex(),
@@ -201,7 +222,7 @@ func (mc *MessageController) HandleWebSocket(ctx *gin.Context) {
 			"url":          message.URL,
 			"fileId":       message.FileID,
 			"channelId":    message.ChannelID.Hex(),
-			"replyTo":      replyToOID,
+			"replyTo":      replyPreview,
 			"attachments":  message.Attachments,
 		}
 
@@ -282,4 +303,120 @@ func (mc *MessageController) HideMessageHandler(ctx *gin.Context) {
 	})
 
 	ctx.JSON(http.StatusOK, gin.H{"message": "Hidden locally"})
+}
+
+func (mc *MessageController) EditMessage(ctx *gin.Context) {
+	msgIDHex := ctx.Param("messageID")
+	msgID, err := primitive.ObjectIDFromHex(msgIDHex)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid message id"})
+		return
+	}
+
+	// auth user id từ JWT (bạn đang dùng ctx header token ở WS; với REST bạn đang có middleware auth rồi)
+	userIDHex := ctx.GetString("user_id") // nếu middleware set; nếu chưa có, parse giống WS
+	if userIDHex == "" {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	editorID, _ := primitive.ObjectIDFromHex(userIDHex)
+
+	var body struct {
+		Content string `json:"content"`
+	}
+	if err := ctx.BindJSON(&body); err != nil || strings.TrimSpace(body.Content) == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "content required"})
+		return
+	}
+
+	msg, err := mc.MessageService.EditMessage(msgID, editorID, body.Content)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// 🔧 LẤY THÔNG TIN NGƯỜI GỬI để trả về đầy đủ cho FE
+	var sender struct {
+		Name   string `bson:"name"`
+		Avatar string `bson:"avatar"`
+	}
+	_ = mc.MessageService.DB.Collection("users").FindOne(
+		context.TODO(),
+		bson.M{"_id": msg.SenderID},
+	).Decode(&sender)
+
+	// broadcast
+	resp := map[string]interface{}{
+		"type":         "message_updated",
+		"id":           msg.ID.Hex(),
+		"channelId":    msg.ChannelID.Hex(),
+		"content":      msg.Content,
+		"edited":       msg.Edited,
+		"editedAt":     msg.EditedAt,
+		"messageType":  msg.MessageType, // ✅ thêm loại tin nhắn
+		"senderId":     msg.SenderID.Hex(),
+		"senderName":   sender.Name,
+		"senderAvatar": "http://localhost:8080" + sender.Avatar,
+		"timestamp":    msg.Timestamp, // ✅ thêm timestamp
+		"recalled":     msg.Recalled,
+		"status":       msg.Status,
+	}
+	mc.WebRTCController.BroadcastMessage(msg.ChannelID, resp)
+
+	ctx.JSON(http.StatusOK, msg)
+}
+
+func (mc *MessageController) ToggleReaction(ctx *gin.Context) {
+	msgIDHex := ctx.Param("messageID")
+	msgID, err := primitive.ObjectIDFromHex(msgIDHex)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "invalid message id"})
+		return
+	}
+
+	userIDHex := ctx.GetString("user_id")
+	if userIDHex == "" {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "unauthorized"})
+		return
+	}
+	userID, _ := primitive.ObjectIDFromHex(userIDHex)
+
+	var body struct {
+		Emoji string `json:"emoji"`
+	}
+	if err := ctx.BindJSON(&body); err != nil || body.Emoji == "" {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": "emoji required"})
+		return
+	}
+
+	msg, err := mc.MessageService.ToggleReaction(msgID, userID, body.Emoji)
+	if err != nil {
+		ctx.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	// build reaction summary (emoji + count + hasMine)
+	type R struct {
+		Emoji   string               `json:"emoji"`
+		UserIDs []primitive.ObjectID `json:"userIDs"`
+		Count   int                  `json:"count"`
+	}
+	var rs []R
+	for _, r := range msg.Reactions {
+		rs = append(rs, R{
+			Emoji:   r.Emoji,
+			UserIDs: r.UserIDs,
+			Count:   len(r.UserIDs),
+		})
+	}
+
+	resp := map[string]interface{}{
+		"type":      "message_reaction",
+		"messageId": msg.ID.Hex(),
+		"channelId": msg.ChannelID.Hex(),
+		"reactions": rs,
+	}
+	mc.WebRTCController.BroadcastMessage(msg.ChannelID, resp)
+
+	ctx.JSON(http.StatusOK, msg)
 }

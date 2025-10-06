@@ -52,23 +52,30 @@ type DeliveryReceipt struct {
 	DeliveredAt time.Time          `bson:"deliveredAt" json:"deliveredAt"`
 }
 
+type Reaction struct {
+	Emoji   string               `bson:"emoji" json:"emoji"`
+	UserIDs []primitive.ObjectID `bson:"userIDs" json:"userIDs"`
+}
+
 type Message struct {
-	ID             primitive.ObjectID              `bson:"_id" json:"id"`
-	ChannelID      primitive.ObjectID              `bson:"channelID" json:"channelId"`
-	Content        string                          `bson:"content" json:"content"`
-	Timestamp      time.Time                       `bson:"timestamp" json:"timestamp"`
-	MessageType    MessageType                     `bson:"messageType" json:"messageType"`
-	SenderID       primitive.ObjectID              `bson:"senderId" json:"senderId"`
-	Status         MessageStatus                   `bson:"status" json:"status"`
-	Recalled       bool                            `bson:"recalled" json:"recalled"`
-	HiddenBy       []primitive.ObjectID            `bson:"hiddenBy,omitempty" json:"-"`
-	URL            string                          `json:"url" bson:"url"`
-	FileID         *primitive.ObjectID             `bson:"fileId" json:"fileId"`
-	ReplyTo        *primitive.ObjectID             `bson:"replyTo,omitempty" json:"replyTo,omitempty"`
-	EditedAt       *time.Time                      `bson:"editedAt,omitempty" json:"editedAt,omitempty"`
-	RecallDeadline *time.Time                      `bson:"recallDeadline,omitempty" json:"recallDeadline,omitempty"`
-	Reactions      map[string][]primitive.ObjectID `bson:"reactions,omitempty" json:"reactions,omitempty"`
-	ReadBy         []ReadReceipt                   `bson:"readBy,omitempty" json:"readBy,omitempty"`
-	DeliveredBy    []DeliveryReceipt               `bson:"deliveredBy,omitempty" json:"deliveredBy,omitempty"`
-	Attachments    []Attachment                    `bson:"attachments,omitempty" json:"attachments,omitempty"`
+	ID             primitive.ObjectID   `bson:"_id" json:"id"`
+	ChannelID      primitive.ObjectID   `bson:"channelID" json:"channelId"`
+	Content        string               `bson:"content" json:"content"`
+	Timestamp      time.Time            `bson:"timestamp" json:"timestamp"`
+	MessageType    MessageType          `bson:"messageType" json:"messageType"`
+	SenderID       primitive.ObjectID   `bson:"senderId" json:"senderId"`
+	Status         MessageStatus        `bson:"status" json:"status"`
+	Recalled       bool                 `bson:"recalled" json:"recalled"`
+	HiddenBy       []primitive.ObjectID `bson:"hiddenBy,omitempty" json:"-"`
+	URL            string               `json:"url" bson:"url"`
+	FileID         *primitive.ObjectID  `bson:"fileId" json:"fileId"`
+	ReplyTo        *primitive.ObjectID  `bson:"replyTo,omitempty" json:"replyTo,omitempty"`
+	ReplyToMessage *Message             `bson:"-" json:"replyToMessage,omitempty"`
+	Edited         bool                 `bson:"edited" json:"edited"`
+	EditedAt       *time.Time           `bson:"editedAt,omitempty" json:"editedAt,omitempty"`
+	RecallDeadline *time.Time           `bson:"recallDeadline,omitempty" json:"recallDeadline,omitempty"`
+	Reactions      []Reaction           `bson:"reactions,omitempty" json:"reactions,omitempty"`
+	ReadBy         []ReadReceipt        `bson:"readBy,omitempty" json:"readBy,omitempty"`
+	DeliveredBy    []DeliveryReceipt    `bson:"deliveredBy,omitempty" json:"deliveredBy,omitempty"`
+	Attachments    []Attachment         `bson:"attachments,omitempty" json:"attachments,omitempty"`
 }

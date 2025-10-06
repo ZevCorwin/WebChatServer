@@ -68,6 +68,19 @@ func (chs *ChatHistoryService) GetChatHistory(channelID, userID primitive.Object
 			continue
 		}
 
+		var reply map[string]interface{}
+		if msg.ReplyTo != nil {
+			var parent models.Message
+			if err := messagesCollection.FindOne(ctx, bson.M{"_id": *msg.ReplyTo}).Decode(&parent); err == nil {
+				reply = map[string]interface{}{
+					"id":          parent.ID.Hex(),
+					"content":     parent.Content,
+					"senderId":    parent.SenderID.Hex(),
+					"messageType": parent.MessageType,
+				}
+			}
+		}
+
 		// skip hidden
 		skip := false
 		for _, h := range msg.HiddenBy {
@@ -95,6 +108,8 @@ func (chs *ChatHistoryService) GetChatHistory(channelID, userID primitive.Object
 			"recalled":     msg.Recalled,
 			"url":          msg.URL,
 			"fileId":       msg.FileID,
+			"reactions":    msg.Reactions,
+			"replyTo":      reply,
 		})
 	}
 
@@ -338,6 +353,7 @@ func (chs *ChatHistoryService) GetChannelMessages(
 			ChannelID    primitive.ObjectID   `bson:"channelID"`
 			SenderName   string               `bson:"senderName"`
 			SenderAvatar string               `bson:"senderAvatar"`
+			Reactions    []models.Reaction    `bson:"reactions"`
 		}
 		if err := cur.Decode(&m); err != nil {
 			return nil, err
@@ -356,6 +372,7 @@ func (chs *ChatHistoryService) GetChannelMessages(
 			"url":          m.URL,
 			"fileId":       m.FileID,
 			"channelId":    m.ChannelID.Hex(),
+			"reactions":    m.Reactions,
 		})
 	}
 	if err := cur.Err(); err != nil {
