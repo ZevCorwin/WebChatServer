@@ -24,13 +24,13 @@ type Config struct {
 func LoadEnv() {
 	env := os.Getenv("APP_ENV")
 	if env == "" {
-		env = "development" // Mặc định là "development"
+		env = "development" // mặc định
 	}
 	envFile := fmt.Sprintf(".env.%s", env)
 
-	// Nạp biến môi trường từ tệp
+	// Nạp từ file nếu có, nhưng KHÔNG lỗi nếu thiếu (Render sẽ dùng biến hệ thống)
 	if err := godotenv.Load(envFile); err != nil {
-		log.Fatalf("Lỗi: không thể nạp tệp %s: %v", envFile, err)
+		log.Printf("⚠️ Không tìm thấy file %s — sử dụng biến môi trường hệ thống (Render, Docker...)", envFile)
 	}
 }
 
@@ -54,11 +54,14 @@ func LoadConfig() Config {
 	if config.AppPort == "" {
 		log.Fatal("Lỗi cấu hình: Biến môi trường APP_PORT không được để trống")
 	}
-	if config.DBHost == "" {
-		log.Fatal("Lỗi cấu hình: Biến môi trường DB_HOST không được để trống")
-	}
-	if config.DBPort == "" {
-		log.Fatal("Lỗi cấu hình: Biến môi trường DB_PORT không được để trống")
+	// Nếu không có MongoURI thì mới yêu cầu DB_HOST/DB_PORT
+	if config.MongoURI == "" {
+		if config.DBHost == "" {
+			log.Fatal("Lỗi cấu hình: DB_HOST không được để trống (hoặc dùng MONGODB_URI)")
+		}
+		if config.DBPort == "" {
+			log.Fatal("Lỗi cấu hình: DB_PORT không được để trống (hoặc dùng MONGODB_URI)")
+		}
 	}
 	if config.DBName == "" {
 		log.Fatal("Lỗi cấu hình: Biến môi trường DB_NAME không được để trống")
