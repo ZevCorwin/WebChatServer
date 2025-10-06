@@ -3,56 +3,67 @@ package config
 import (
 	"context"
 	"fmt"
-	"go.mongodb.org/mongo-driver/bson"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 	"log"
 	"os"
 	"time"
+
+	"go.mongodb.org/mongo-driver/bson"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
+	"go.mongodb.org/mongo-driver/mongo/readpref"
 )
 
-// Mới
 var DB *mongo.Database
+var mongoClient *mongo.Client
 
-// Mới
 func InitDB() {
 	DB = ConnectDB()
 }
 
-// ConnectDB kết nối tới MongoDB và trả về một đối tượng *mongo.Database
 func ConnectDB() *mongo.Database {
-	LoadEnv() // Nạp biến môi trường từ file .env
+	LoadEnv()
 
-	//Tạo URI kết nối MongoDB
-	dbHost := os.Getenv("DB_HOST")
-	dbPort := os.Getenv("DB_PORT")
+	uri := os.Getenv("MONGODB_URI")
 	dbName := os.Getenv("DB_NAME")
 
-	if dbHost == "" || dbPort == "" || dbName == "" {
-		log.Fatal("Lỗi cấu hình: DB_HOST, DB_PORT hoặc DB_NAME không được để trống")
+	// Fallback cho dev local nếu không có SRV
+	if uri == "" {
+		host := os.Getenv("DB_HOST")
+		port := os.Getenv("DB_PORT")
+		if host == "" || port == "" || dbName == "" {
+			log.Fatal("Thiếu MONGODB_URI hoặc (DB_HOST, DB_PORT, DB_NAME)")
+		}
+		uri = fmt.Sprintf("mongodb://%s:%s/%s", host, port, dbName)
 	}
 
-	dbURI := fmt.Sprintf("mongodb://%s:%s/%s", dbHost, dbPort, dbName)
-	fmt.Println("MongoDB URI:", dbURI) // Log URI để kiểm tra
+	if dbName == "" {
+		// Nếu không set DB_NAME, chọn mặc định
+		dbName = "chatapp"
+	}
 
-	// Cấu hình client MongoDB
-	clientOptions := options.Client().ApplyURI(dbURI).SetServerSelectionTimeout(10 * time.Second)
-	client, err := mongo.Connect(context.Background(), clientOptions)
+	clientOpts := options.Client().
+		ApplyURI(uri).
+		SetServerSelectionTimeout(10 * time.Second)
+
+	client, err := mongo.Connect(context.Background(), clientOpts)
 	if err != nil {
-		log.Fatalf("Không thể kết nối tới MongoDB: %v", err)
+		log.Fatalf("Không thể tạo client MongoDB: %v", err)
 	}
 
-	// Kiểm tra kết nối với MongoDB
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
-	if err := client.Ping(ctx, nil); err != nil {
-		log.Fatalf("Ping đến MongoDB thất bại: %v", err)
+
+	// Ping primary (v1.6 dùng readpref)
+	if err := client.Ping(ctx, readpref.Primary()); err != nil {
+		log.Fatalf("Ping MongoDB thất bại: %v", err)
 	}
 
-	// Kết nối thành công
-	fmt.Printf("Kết nối thành công đến MongoDB tại URI: %s\n", dbURI)
-	db := client.Database(dbName)
+	log.Printf("[Mongo] ✅ Kết nối OK: %s", uri)
 
+	db := client.Database(dbName)
+	mongoClient = client
+
+	// TTL index cho OTP
 	otpCollection := db.Collection("otps")
 	indexModel := mongo.IndexModel{
 		Keys:    bson.M{"expires_at": 1},
@@ -62,6 +73,7 @@ func ConnectDB() *mongo.Database {
 		log.Printf("Không thể tạo TTL index cho OTP: %v", err)
 	}
 
+	// Index messages / chathistory
 	{
 		_, err := db.Collection("messages").Indexes().CreateMany(context.Background(), []mongo.IndexModel{
 			{
@@ -86,7 +98,6 @@ func ConnectDB() *mongo.Database {
 		}
 	}
 
-	// ✅ GỌI tạo index cho messages
 	if err := ensureMessageIndexes(db); err != nil {
 		log.Printf("Không thể tạo index cho messages: %v", err)
 	}
@@ -94,11 +105,9 @@ func ConnectDB() *mongo.Database {
 	return db
 }
 
-// ensureMessageIndexes: tạo index phục vụ query theo channel + thời gian
 func ensureMessageIndexes(db *mongo.Database) error {
 	coll := db.Collection("messages")
 
-	// channelID + timestamp (phân trang/time sort)
 	_, err := coll.Indexes().CreateOne(context.Background(), mongo.IndexModel{
 		Keys:    bson.D{{Key: "channelID", Value: 1}, {Key: "timestamp", Value: 1}},
 		Options: options.Index().SetName("channelID_timestamp_idx"),
@@ -107,10 +116,15 @@ func ensureMessageIndexes(db *mongo.Database) error {
 		return err
 	}
 
-	// hiddenBy để lọc nhanh (không bắt buộc, nhưng nên có)
 	_, err = coll.Indexes().CreateOne(context.Background(), mongo.IndexModel{
 		Keys:    bson.D{{Key: "hiddenBy", Value: 1}},
 		Options: options.Index().SetName("hiddenBy_idx"),
 	})
 	return err
+}
+
+func CloseDB() {
+	if mongoClient != nil {
+		_ = mongoClient.Disconnect(context.Background())
+	}
 }

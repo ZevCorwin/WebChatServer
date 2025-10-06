@@ -15,6 +15,7 @@ type Config struct {
 	DBName    string
 	JWTSecret string
 	//RedisHost     string
+	MongoURI      string
 	WebSocketPort string
 	WebSocketPath string
 }
@@ -44,6 +45,7 @@ func LoadConfig() Config {
 		DBName:    os.Getenv("DB_NAME"),
 		JWTSecret: os.Getenv("JWT_SECRET"),
 		//RedisHost:     os.Getenv("REDIS_HOST"),
+		MongoURI:      os.Getenv("MONGODB_URI"),
 		WebSocketPort: os.Getenv("WEBSOCKET_PORT"),
 		WebSocketPath: os.Getenv("WEBSOCKET_PATH"),
 	}
@@ -69,6 +71,16 @@ func LoadConfig() Config {
 	//}
 	if config.WebSocketPort == "" {
 		log.Fatal("Lỗi cấu hình: Biến môi trường WEBSOCKET_PORT không được để trống")
+	}
+
+	// ❗ Nếu KHÔNG có MongoURI thì mới yêu cầu DB_HOST/DB_PORT
+	if config.MongoURI == "" {
+		if config.DBHost == "" {
+			log.Fatal("Lỗi cấu hình: DB_HOST không được để trống (hoặc dùng MONGODB_URI)")
+		}
+		if config.DBPort == "" {
+			log.Fatal("Lỗi cấu hình: DB_PORT không được để trống (hoặc dùng MONGODB_URI)")
+		}
 	}
 
 	return config
