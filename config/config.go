@@ -62,10 +62,11 @@ func LoadConfig() Config {
 		if config.DBPort == "" {
 			log.Fatal("Lỗi cấu hình: DB_PORT không được để trống (hoặc dùng MONGODB_URI)")
 		}
+		if config.DBName == "" {
+			log.Fatal("Lỗi cấu hình: Biến môi trường DB_NAME không được để trống")
+		}
 	}
-	if config.DBName == "" {
-		log.Fatal("Lỗi cấu hình: Biến môi trường DB_NAME không được để trống")
-	}
+
 	if config.JWTSecret == "" {
 		log.Fatal("Lỗi cấu hình: Biến môi trường JWT_SECRET không được để trống")
 	}
