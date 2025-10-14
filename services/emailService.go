@@ -1,54 +1,90 @@
 package services
 
 import (
-	"crypto/tls"
 	"fmt"
-	"gopkg.in/gomail.v2"
+	"github.com/sendgrid/sendgrid-go"
+	"net/smtp"
 	"os"
+
+	"github.com/sendgrid/sendgrid-go/helpers/mail"
 )
 
-type EmailService struct {
-	host string
-	port int
-	user string
-	pass string
-	from string
-	app  string
-}
+// SendEmail là hàm điều phối chính.
+// Nó sẽ đọc biến môi trường EMAIL_PROVIDER để quyết định dùng dịch vụ nào.
+func SendEmail(to, subject, body string) error {
+	provider := os.Getenv("EMAIL_PROVIDER")
 
-func NewEmailService() *EmailService {
-	// port lấy từ .env string -> int
-	port := 587
-	if v := os.Getenv("SMTP_PORT"); v != "" {
-		fmt.Sscanf(v, "%d", &port)
-	}
-	return &EmailService{
-		host: os.Getenv("SMTP_HOST"),
-		port: port,
-		user: os.Getenv("SMTP_USER"),
-		pass: os.Getenv("SMTP_PASS"),
-		from: os.Getenv("SMTP_USER"),
-		app:  os.Getenv("APP_NAME"),
+	switch provider {
+	case "sendgrid":
+		fmt.Println("INFO: Using SendGrid provider to send email...")
+		return sendEmailSendGrid(to, subject, body)
+	case "smtp":
+		fmt.Println("INFO: Using SMTP provider to send email...")
+		return sendEmailSMTP(to, subject, body)
+	default:
+		// Mặc định cho môi trường dev nếu không cấu hình
+		fmt.Println("INFO: EMAIL_PROVIDER not set, defaulting to SMTP...")
+		return sendEmailSMTP(to, subject, body)
 	}
 }
 
-func (es *EmailService) Send(to, subject, htmlBody string) error {
-	m := gomail.NewMessage()
-	m.SetHeader("From", es.from)
-	m.SetHeader("To", to)
-	m.SetHeader("Subject", subject)
-	m.SetBody("text/html", htmlBody)
+// sendEmailSMTP chứa logic gửi email qua SMTP truyền thống.
+func sendEmailSMTP(to, subject, body string) error {
+	smtpServer := os.Getenv("SMTP_SERVER")
+	smtpPort := os.Getenv("SMTP_PORT")
+	smtpUser := os.Getenv("SMTP_USER")
+	smtpPassword := os.Getenv("SMTP_PASSWORD")
 
-	d := gomail.NewDialer(es.host, es.port, es.user, es.pass)
-	d.TLSConfig = &tls.Config{
-		ServerName: es.host, // 👈 BẮT BUỘC để TLS handshake đúng
+	if smtpServer == "" || smtpPort == "" || smtpUser == "" || smtpPassword == "" {
+		return fmt.Errorf("SMTP environment variables not fully configured")
 	}
 
-	fmt.Printf("[EmailService] Sending mail to %s via %s:%d as %s\n", to, es.host, es.port, es.user)
-	if err := d.DialAndSend(m); err != nil {
-		fmt.Printf("[EmailService] Send error: %v\n", err)
-		return err
+	auth := smtp.PlainAuth("", smtpUser, smtpPassword, smtpServer)
+	addr := fmt.Sprintf("%s:%s", smtpServer, smtpPort)
+
+	// Định dạng message theo chuẩn MIME để email hiển thị đúng HTML
+	msg := []byte("To: " + to + "\r\n" +
+		"From: " + smtpUser + "\r\n" + // Thêm dòng From
+		"Subject: " + subject + "\r\n" +
+		"MIME-version: 1.0;\nContent-Type: text/html; charset=\"UTF-8\";\n\n" +
+		body)
+
+	err := smtp.SendMail(addr, auth, smtpUser, []string{to}, msg)
+	if err != nil {
+		return fmt.Errorf("failed to send email via SMTP: %w", err)
 	}
-	fmt.Println("[EmailService] Email sent successfully!")
+
+	fmt.Println("SUCCESS: Email sent successfully via SMTP to", to)
 	return nil
+}
+
+// sendEmailSendGrid chứa logic gửi email qua SendGrid API.
+func sendEmailSendGrid(to, subject, body string) error {
+	apiKey := os.Getenv("SENDGRID_API_KEY")
+	senderEmail := os.Getenv("SENDER_EMAIL")
+	senderName := os.Getenv("SENDER_NAME")
+
+	if apiKey == "" || senderEmail == "" {
+		return fmt.Errorf("SENDGRID_API_KEY and SENDER_EMAIL must be set")
+	}
+
+	from := mail.NewEmail(senderName, senderEmail)
+	toEmail := mail.NewEmail("", to)
+	htmlContent := body
+	plainTextContent := "Please view this email in an HTML-compatible client."
+
+	message := mail.NewSingleEmail(from, subject, toEmail, plainTextContent, htmlContent)
+	client := sendgrid.NewSendClient(apiKey)
+	response, err := client.Send(message)
+
+	if err != nil {
+		return fmt.Errorf("failed to send email via SendGrid: %w", err)
+	}
+
+	if response.StatusCode >= 200 && response.StatusCode < 300 {
+		fmt.Println("SUCCESS: Email sent successfully via SendGrid to", to)
+		return nil
+	}
+
+	return fmt.Errorf("SendGrid API error, status code: %d, body: %s", response.StatusCode, response.Body)
 }
