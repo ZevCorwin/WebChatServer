@@ -13,13 +13,13 @@ import (
 // SendEmail là hàm điều phối chính, thay thế cho toàn bộ struct cũ.
 // Bất kỳ service nào (như otpService) cũng sẽ gọi hàm này.
 func SendEmail(to, subject, body string) error {
-	provider := os.Getenv("EMAIL_PROVIDER")
+	provider := os.Getenv("APP_ENV")
 
 	switch provider {
-	case "sendgrid":
+	case "production":
 		fmt.Println("INFO: Using SendGrid provider to send email...")
 		return sendEmailSendGrid(to, subject, body)
-	case "smtp":
+	case "development":
 		fmt.Println("INFO: Using SMTP provider (gomail) to send email...")
 		return sendEmailSMTP(to, subject, body)
 	default:
