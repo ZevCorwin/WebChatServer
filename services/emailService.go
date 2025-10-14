@@ -1,16 +1,17 @@
 package services
 
 import (
+	"crypto/tls"
 	"fmt"
-	"github.com/sendgrid/sendgrid-go"
-	"net/smtp"
+	"gopkg.in/gomail.v2"
 	"os"
 
+	"github.com/sendgrid/sendgrid-go"
 	"github.com/sendgrid/sendgrid-go/helpers/mail"
 )
 
-// SendEmail là hàm điều phối chính.
-// Nó sẽ đọc biến môi trường EMAIL_PROVIDER để quyết định dùng dịch vụ nào.
+// SendEmail là hàm điều phối chính, thay thế cho toàn bộ struct cũ.
+// Bất kỳ service nào (như otpService) cũng sẽ gọi hàm này.
 func SendEmail(to, subject, body string) error {
 	provider := os.Getenv("EMAIL_PROVIDER")
 
@@ -19,42 +20,47 @@ func SendEmail(to, subject, body string) error {
 		fmt.Println("INFO: Using SendGrid provider to send email...")
 		return sendEmailSendGrid(to, subject, body)
 	case "smtp":
-		fmt.Println("INFO: Using SMTP provider to send email...")
+		fmt.Println("INFO: Using SMTP provider (gomail) to send email...")
 		return sendEmailSMTP(to, subject, body)
 	default:
 		// Mặc định cho môi trường dev nếu không cấu hình
-		fmt.Println("INFO: EMAIL_PROVIDER not set, defaulting to SMTP...")
+		fmt.Println("INFO: EMAIL_PROVIDER not set, defaulting to SMTP (gomail)...")
 		return sendEmailSMTP(to, subject, body)
 	}
 }
 
-// sendEmailSMTP chứa logic gửi email qua SMTP truyền thống.
-func sendEmailSMTP(to, subject, body string) error {
-	smtpServer := os.Getenv("SMTP_SERVER")
-	smtpPort := os.Getenv("SMTP_PORT")
-	smtpUser := os.Getenv("SMTP_USER")
-	smtpPassword := os.Getenv("SMTP_PASSWORD")
+// sendEmailSMTP sử dụng lại logic gomail gốc của bạn.
+func sendEmailSMTP(to, subject, htmlBody string) error {
+	// Đọc cấu hình SMTP từ biến môi trường
+	host := os.Getenv("SMTP_HOST")
+	user := os.Getenv("SMTP_USER")
+	pass := os.Getenv("SMTP_PASS")
+	port := 587 // Mặc định
+	if v := os.Getenv("SMTP_PORT"); v != "" {
+		fmt.Sscanf(v, "%d", &port)
+	}
 
-	if smtpServer == "" || smtpPort == "" || smtpUser == "" || smtpPassword == "" {
+	if host == "" || user == "" {
 		return fmt.Errorf("SMTP environment variables not fully configured")
 	}
 
-	auth := smtp.PlainAuth("", smtpUser, smtpPassword, smtpServer)
-	addr := fmt.Sprintf("%s:%s", smtpServer, smtpPort)
+	m := gomail.NewMessage()
+	m.SetHeader("From", user) // 'From' thường giống với 'user'
+	m.SetHeader("To", to)
+	m.SetHeader("Subject", subject)
+	m.SetBody("text/html", htmlBody)
 
-	// Định dạng message theo chuẩn MIME để email hiển thị đúng HTML
-	msg := []byte("To: " + to + "\r\n" +
-		"From: " + smtpUser + "\r\n" + // Thêm dòng From
-		"Subject: " + subject + "\r\n" +
-		"MIME-version: 1.0;\nContent-Type: text/html; charset=\"UTF-8\";\n\n" +
-		body)
-
-	err := smtp.SendMail(addr, auth, smtpUser, []string{to}, msg)
-	if err != nil {
-		return fmt.Errorf("failed to send email via SMTP: %w", err)
+	d := gomail.NewDialer(host, port, user, pass)
+	d.TLSConfig = &tls.Config{
+		ServerName: host, // Giữ lại cấu hình TLS quan trọng của bạn
 	}
 
-	fmt.Println("SUCCESS: Email sent successfully via SMTP to", to)
+	fmt.Printf("[EmailService-SMTP] Sending mail to %s via %s:%d\n", to, host, port)
+	if err := d.DialAndSend(m); err != nil {
+		fmt.Printf("[EmailService-SMTP] Send error: %v\n", err)
+		return err
+	}
+	fmt.Println("[EmailService-SMTP] Email sent successfully!")
 	return nil
 }
 
@@ -70,10 +76,7 @@ func sendEmailSendGrid(to, subject, body string) error {
 
 	from := mail.NewEmail(senderName, senderEmail)
 	toEmail := mail.NewEmail("", to)
-	htmlContent := body
-	plainTextContent := "Please view this email in an HTML-compatible client."
-
-	message := mail.NewSingleEmail(from, subject, toEmail, plainTextContent, htmlContent)
+	message := mail.NewSingleEmail(from, subject, toEmail, body, body)
 	client := sendgrid.NewSendClient(apiKey)
 	response, err := client.Send(message)
 
@@ -82,7 +85,7 @@ func sendEmailSendGrid(to, subject, body string) error {
 	}
 
 	if response.StatusCode >= 200 && response.StatusCode < 300 {
-		fmt.Println("SUCCESS: Email sent successfully via SendGrid to", to)
+		fmt.Println("[EmailService-SendGrid] Email sent successfully to", to)
 		return nil
 	}
 
