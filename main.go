@@ -33,28 +33,19 @@ func main() {
 	router.Static("/uploads", "./uploads")
 	router.MaxMultipartMemory = 32 << 20 // 32MB
 
-	router.Use(cors.New(cors.Config{
-		AllowOriginFunc: func(origin string) bool {
-			// Cho phép FE production cố định
-			if origin == "https://web-chat-client-ten.vercel.app" {
-				return true
-			}
-			// Cho phép mọi subdomain vercel.app nếu bạn cần test preview
-			if strings.HasSuffix(origin, ".vercel.app") {
-				return true
-			}
-			// Local dev
-			if origin == "http://localhost:3000" || origin == "http://127.0.0.1:3000" {
-				return true
-			}
-			return false
-		},
-		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
-		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "Accept"},
-		ExposeHeaders:    []string{"Content-Length"},
-		AllowCredentials: true,
-		MaxAge:           12 * time.Hour,
-	}))
+	// Dán đoạn code này vào
+router.Use(cors.New(cors.Config{
+    AllowOrigins: []string{
+        "https://web-chat-client-ten.vercel.app", // URL production của bạn
+        "http://localhost:3000",                  // Dành cho lúc bạn code ở local
+        "http://127.0.0.1:3000",
+    },
+    AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
+    AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "Accept"},
+    ExposeHeaders:    []string{"Content-Length"},
+    AllowCredentials: true,
+    MaxAge:           12 * time.Hour,
+}))
 
 	// Run server
 	port := cfg.AppPort
