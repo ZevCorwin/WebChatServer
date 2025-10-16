@@ -7,7 +7,6 @@ import (
 	"chat-app-backend/services"
 	"github.com/gin-contrib/cors"
 	"log"
-	"strings"
 	"time"
 )
 
@@ -34,18 +33,18 @@ func main() {
 	router.MaxMultipartMemory = 32 << 20 // 32MB
 
 	// Dán đoạn code này vào
-router.Use(cors.New(cors.Config{
-    AllowOrigins: []string{
-        "https://web-chat-client-ten.vercel.app", // URL production của bạn
-        "http://localhost:3000",                  // Dành cho lúc bạn code ở local
-        "http://127.0.0.1:3000",
-    },
-    AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
-    AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "Accept"},
-    ExposeHeaders:    []string{"Content-Length"},
-    AllowCredentials: true,
-    MaxAge:           12 * time.Hour,
-}))
+	router.Use(cors.New(cors.Config{
+		AllowOrigins: []string{
+			"https://web-chat-client-ten.vercel.app", // URL production của bạn
+			"http://localhost:3000",                  // Dành cho lúc bạn code ở local
+			"http://127.0.0.1:3000",
+		},
+		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Authorization", "Accept"},
+		ExposeHeaders:    []string{"Content-Length"},
+		AllowCredentials: true,
+		MaxAge:           12 * time.Hour,
+	}))
 
 	// Run server
 	port := cfg.AppPort
