@@ -7,10 +7,10 @@ import (
 
 // SetupRouter khởi tạo các routes chính
 func SetupRouter(
+	router *gin.Engine,
 	messageController *controllers.MessageController,
 	channelController *controllers.ChannelController,
-) *gin.Engine {
-	router := gin.Default()
+) {
 
 	// Cấu hình routes cho người dùng
 	SetupUserRoutes(router)
@@ -31,6 +31,4 @@ func SetupRouter(
 
 	// Cấu hình routes cho Friend
 	SetupFriendRoutes(router)
-
-	return router
 }

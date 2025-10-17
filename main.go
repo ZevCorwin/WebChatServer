@@ -6,6 +6,7 @@ import (
 	"chat-app-backend/routes"
 	"chat-app-backend/services"
 	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
 	"log"
 	"time"
 )
@@ -26,13 +27,8 @@ func main() {
 	messageController := controllers.NewMessageController(messageService, channelService, webrtcController)
 	channelController := controllers.NewChannelController(channelService, webrtcController)
 
-	// --- Router (gom routes trong index.go) ---
-	router := routes.SetupRouter(messageController, channelController)
-
-	router.Static("/uploads", "./uploads")
-	router.MaxMultipartMemory = 32 << 20 // 32MB
-
-	// Dán đoạn code này vào
+	router := gin.New()
+	router.Use(gin.Logger(), gin.Recovery())
 	router.Use(cors.New(cors.Config{
 		AllowOrigins: []string{
 			"https://web-chat-client-ten.vercel.app", // URL production của bạn
@@ -45,6 +41,12 @@ func main() {
 		AllowCredentials: true,
 		MaxAge:           12 * time.Hour,
 	}))
+
+	// --- Router (gom routes trong index.go) ---
+	routes.SetupRouter(router, messageController, channelController)
+
+	router.Static("/uploads", "./uploads")
+	router.MaxMultipartMemory = 32 << 20 // 32MB
 
 	// Run server
 	port := cfg.AppPort
