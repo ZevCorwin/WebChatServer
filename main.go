@@ -8,6 +8,7 @@ import (
 	"github.com/gin-contrib/cors"
 	"github.com/gin-gonic/gin"
 	"log"
+	"os"
 	"time"
 )
 
@@ -31,8 +32,8 @@ func main() {
 	router.Use(gin.Logger(), gin.Recovery())
 	router.Use(cors.New(cors.Config{
 		AllowOrigins: []string{
-			"https://web-chat-client-ten.vercel.app", // URL production của bạn
-			"http://localhost:3000",                  // Dành cho lúc bạn code ở local
+			"https://web-chat-client-ten.vercel.app",
+			"http://localhost:3000",
 			"http://127.0.0.1:3000",
 		},
 		AllowMethods:     []string{"GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"},
@@ -45,7 +46,10 @@ func main() {
 	// --- Router (gom routes trong index.go) ---
 	routes.SetupRouter(router, messageController, channelController)
 
-	router.Static("/uploads", "./uploads")
+	// Chỉ serve folder /uploads khi STORAGE_PROVIDER=local (để test local)
+	if os.Getenv("STORAGE_PROVIDER") == "" || os.Getenv("STORAGE_PROVIDER") == "local" {
+		router.Static("/uploads", "./uploads")
+	}
 	router.MaxMultipartMemory = 32 << 20 // 32MB
 
 	// Run server

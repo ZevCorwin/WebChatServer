@@ -10,9 +10,6 @@ RUN go mod download
 # Copy toàn bộ mã nguồn
 COPY . .
 
-# Tạo thư mục uploads để tránh lỗi checksum
-RUN mkdir -p /app/uploads
-
 # Build binary
 RUN go build -o main .
 
@@ -21,12 +18,12 @@ FROM alpine:latest
 
 WORKDIR /root/
 
-# Copy binary và thư mục cần thiết
+# Copy binary
 COPY --from=builder /app/main .
-COPY --from=builder /app/uploads ./uploads
 
-# Expose port (trùng với APP_PORT trong .env)
+# Nếu bạn muốn giữ folder uploads trong image (dev), bỏ comment dòng dưới
+# COPY --from=builder /app/uploads ./uploads
+
 EXPOSE 8080
 
-# Lệnh chạy app
 CMD ["./main"]

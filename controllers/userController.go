@@ -10,6 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"log"
 	"net/http"
+	"os"
 )
 
 // UserController chứa các phương thức xử lý yêu cầu của người dùng
@@ -450,7 +451,10 @@ func (uc *UserController) UpdateAvatarHandler(c *gin.Context) {
 	log.Println("[UpdateAvatarHandler] Query default =", c.Query("default"))
 
 	if c.Query("default") == "true" {
-		defaultPath := "/uploads/deadlineDi.jpg"
+		defaultPath := os.Getenv("DEFAULT_AVATAR_URL")
+		if defaultPath == "" {
+			defaultPath = "/uploads/deadlineDi.jpg" // fallback cho local
+		}
 		log.Println("[UpdateAvatarHandler] Đặt avatar mặc định cho user:", userID)
 
 		if err := uc.UserService.UpdateAvatar(objID, defaultPath); err != nil {
@@ -475,22 +479,39 @@ func (uc *UserController) UpdateAvatarHandler(c *gin.Context) {
 
 	log.Println("[UpdateAvatarHandler] Upload file:", file.Filename)
 
-	path := fmt.Sprintf("/uploads/%s", file.Filename)
-	if err := c.SaveUploadedFile(file, "."+path); err != nil {
-		log.Println("[UpdateAvatarHandler] Lỗi lưu file:", err)
-		c.JSON(500, gin.H{"error": "Không thể lưu file"})
+	// Mở file để upload thông qua FileService
+	f, err := file.Open()
+	if err != nil {
+		log.Println("[UpdateAvatarHandler] Không thể mở file:", err)
+		c.JSON(400, gin.H{"error": "Không thể mở file upload"})
 		return
 	}
 
-	if err := uc.UserService.UpdateAvatar(objID, path); err != nil {
+	fs, err := services.GetDefaultFileService()
+	if err != nil {
+		log.Println("[UpdateAvatarHandler] Lỗi provider:", err)
+		c.JSON(500, gin.H{"error": "Lỗi server"})
+		return
+	}
+
+	saved, err := fs.SaveUpload(f, file)
+	if err != nil {
+		log.Println("[UpdateAvatarHandler] Lỗi khi upload:", err)
+		c.JSON(500, gin.H{"error": "Không thể upload file"})
+		return
+	}
+
+	if err := uc.UserService.UpdateAvatar(objID, saved.URL); err != nil {
 		log.Println("[UpdateAvatarHandler] Lỗi UpdateAvatar:", err)
 		c.JSON(500, gin.H{"error": "Không thể cập nhật avatar"})
 		return
 	}
 
-	log.Println("[UpdateAvatarHandler] Thành công:", path)
-	c.JSON(200, gin.H{"message": "Cập nhật avatar thành công", "avatar": path})
+	log.Println("[UpdateAvatarHandler] Thành công:", saved.URL)
+	c.JSON(200, gin.H{"message": "Cập nhật avatar thành công", "avatar": saved.URL})
 }
+
+// Thay thế UpdateCoverPhotoHandler tương tự:
 
 // UpdateCoverPhotoHandler xử lý upload cover photo
 func (uc *UserController) UpdateCoverPhotoHandler(c *gin.Context) {
@@ -507,17 +528,29 @@ func (uc *UserController) UpdateCoverPhotoHandler(c *gin.Context) {
 		return
 	}
 
-	// Lưu file vào thư mục uploads
-	path := fmt.Sprintf("/uploads/%s", file.Filename)
-	if err := c.SaveUploadedFile(file, "."+path); err != nil {
-		c.JSON(500, gin.H{"error": "Không thể lưu file"})
+	// Mở file và upload qua FileService
+	f, err := file.Open()
+	if err != nil {
+		c.JSON(400, gin.H{"error": "Không thể mở file"})
 		return
 	}
 
-	if err := uc.UserService.UpdateCoverPhoto(objID, path); err != nil {
+	fs, err := services.GetDefaultFileService()
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Lỗi server"})
+		return
+	}
+
+	saved, err := fs.SaveUpload(f, file)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "Không thể upload file"})
+		return
+	}
+
+	if err := uc.UserService.UpdateCoverPhoto(objID, saved.URL); err != nil {
 		c.JSON(500, gin.H{"error": "Không thể cập nhật ảnh bìa"})
 		return
 	}
 
-	c.JSON(200, gin.H{"message": "Cập nhật ảnh bìa thành công", "coverPhoto": path})
+	c.JSON(200, gin.H{"message": "Cập nhật ảnh bìa thành công", "cover": saved.URL})
 }

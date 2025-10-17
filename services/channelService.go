@@ -10,6 +10,7 @@ import (
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"log"
+	"os"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -128,7 +129,12 @@ func (cs *ChannelService) CreateChannel(userID primitive.ObjectID, name string, 
 	channelName = truncateUTF8(channelName, 50) //Giới hạn an toàn
 	// Xử lý ảnh đại diện nhóm
 	if channelType == models.ChannelTypeGroup && len(channelAvatar) == 0 {
-		channelAvatar = "/uploads/deadlineDi.jpg" // Đường dẫn ảnh đại diện mặc định cho nhóm
+		defaultChannelAvatar := os.Getenv("DEFAULT_CHANNEL_AVATAR_URL")
+		if defaultChannelAvatar == "" {
+			// fallback về same default avatar hoặc local path
+			defaultChannelAvatar = "/uploads/deadlineDi.jpg"
+		}
+		channelAvatar = defaultChannelAvatar
 	}
 
 	// Tạo đối tượng Channel

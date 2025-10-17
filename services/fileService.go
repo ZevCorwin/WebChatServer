@@ -3,37 +3,65 @@ package services
 import (
 	"chat-app-backend/config"
 	"chat-app-backend/models"
+	"chat-app-backend/storage"
 	"context"
 	"fmt"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"mime/multipart"
 	"net/http"
-	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 )
 
-type FileService struct{}
-
-func NewFileService() *FileService {
-	return &FileService{}
+type FileService struct {
+	Provider storage.Provider
 }
 
-// SaveUpload: lưu file lên server và tạo record trong Mongo
+func NewFileService(provider storage.Provider) *FileService {
+	return &FileService{Provider: provider}
+}
+
+// Singleton default provider/service for convenience in controllers
+var (
+	defaultFS   *FileService
+	defaultOnce sync.Once
+)
+
+func GetDefaultFileService() (*FileService, error) {
+	var err error
+	defaultOnce.Do(func() {
+		var prov storage.Provider
+		prov, err = storage.NewProviderFromEnv()
+		if err != nil {
+			return
+		}
+		defaultFS = NewFileService(prov)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return defaultFS, nil
+}
+
+// SaveUpload: lưu file lên provider và tạo record trong Mongo
 func (fs *FileService) SaveUpload(file multipart.File, fh *multipart.FileHeader) (*models.File, error) {
-	defer file.Close()
+	defer func() {
+		// some providers (cloud) Close() inside, but ensure file closed here as a safety net
+		_ = file.Close()
+	}()
 
 	// Đọc MIME type
 	buf := make([]byte, 512)
 	n, _ := file.Read(buf)
 	mime := http.DetectContentType(buf[:n])
-	_, err := file.Seek(0, 0) // reset lại con trỏ sau khi đọc MIME
+	_, err := file.Seek(0, 0) // reset
 	if err != nil {
 		return nil, fmt.Errorf("không thể reset file reader: %v", err)
 	}
 
-	// Giới hạn kích thước (ví dụ: 20MB)
+	// Giới hạn kích thước (20MB)
 	const maxSize = 20 << 20 // 20MB
 	if fh.Size > maxSize {
 		return nil, fmt.Errorf("file quá lớn, tối đa 20MB")
@@ -51,36 +79,15 @@ func (fs *FileService) SaveUpload(file multipart.File, fh *multipart.FileHeader)
 		fileType = models.FileTypeDocument
 	}
 
-	// Tạo đường dẫn lưu file
-	uploadDir := "./uploads"
-	if _, err := os.Stat(uploadDir); os.IsNotExist(err) {
-		os.MkdirAll(uploadDir, os.ModePerm)
-	}
-
+	// Tạo tên file duy nhất
 	ext := filepath.Ext(fh.Filename)
 	filename := primitive.NewObjectID().Hex() + ext
-	fullPath := filepath.Join(uploadDir, filename)
 
-	// Lưu file xuống disk
-	dst, err := os.Create(fullPath)
+	// Gọi provider để upload
+	uploadedURL, err := fs.Provider.Upload(file, filename)
 	if err != nil {
-		return nil, fmt.Errorf("không thể tạo file: %v", err)
+		return nil, fmt.Errorf("upload failed: %v", err)
 	}
-	defer dst.Close()
-
-	if _, err := file.Seek(0, 0); err != nil {
-		return nil, err
-	}
-	if _, err := dst.ReadFrom(file); err != nil {
-		return nil, fmt.Errorf("lỗi khi ghi file: %v", err)
-	}
-
-	// URL công khai
-	base := os.Getenv("PUBLIC_BASE_URL")
-	if base == "" {
-		base = "http://localhost:8080"
-	}
-	fileURL := base + "/uploads/" + filename
 
 	// Tạo bản ghi file
 	record := &models.File{
@@ -89,10 +96,9 @@ func (fs *FileService) SaveUpload(file multipart.File, fh *multipart.FileHeader)
 		FileType:   fileType,
 		FileSize:   fh.Size,
 		UploadTime: time.Now(),
-		URL:        fileURL,
+		URL:        uploadedURL,
 	}
 
-	// Lưu record vào Mongo
 	collection := config.DB.Collection("files")
 	if _, err := collection.InsertOne(context.Background(), record); err != nil {
 		return nil, fmt.Errorf("lỗi khi lưu file record: %v", err)

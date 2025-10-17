@@ -59,8 +59,13 @@ func (us *UserService) Register(user models.User) (*models.User, error) {
 	user.Status = models.StatusOffline
 
 	// Gán ảnh đại diện mặc định nếu không có
+	defaultAvatar := os.Getenv("DEFAULT_AVATAR_URL")
+	if defaultAvatar == "" {
+		// fallback cho môi trường local/dev nếu ENV không set
+		defaultAvatar = "/uploads/deadlineDi.jpg"
+	}
 	if user.Avatar == "" {
-		user.Avatar = "/uploads/deadlineDi.jpg" // Đường dẫn ảnh mặc định
+		user.Avatar = defaultAvatar
 	}
 
 	// Chèn người dùng mới vào cơ sở dữ liệu
