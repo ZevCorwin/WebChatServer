@@ -161,14 +161,129 @@ func (mc *MessageController) HandleWebSocket(ctx *gin.Context) {
 			}
 		}
 
+		if t, ok := raw["type"].(string); ok {
+			switch t {
+			case "message_delivered":
+				mid, _ := raw["messageId"].(string)
+				cid, _ := raw["channelId"].(string)
+				uid, _ := raw["userId"].(string)
+				if mid == "" || cid == "" || uid == "" {
+					continue
+				}
+
+				msgOID, err1 := primitive.ObjectIDFromHex(mid)
+				chanOID, err2 := primitive.ObjectIDFromHex(cid)
+				userOID, err3 := primitive.ObjectIDFromHex(uid)
+				if err1 != nil || err2 != nil || err3 != nil {
+					continue
+				}
+
+				// ĐỌC MSG HIỆN TẠI ĐỂ GATE
+				var cur models.Message
+				if err := mc.MessageService.DB.Collection("messages").
+					FindOne(context.TODO(), bson.M{"_id": msgOID}).Decode(&cur); err != nil {
+					continue
+				}
+				// Nếu đã >= Received thì bỏ qua (tránh notify lặp)
+				if int(cur.StatusStage) >= int(models.StatusStageReceived) {
+					continue
+				}
+
+				// Lưu delivery (có thể vẫn bị gọi trùng nhưng không sao)
+				if err := mc.MessageService.AddDeliveryReceipt(msgOID, chanOID, userOID); err != nil {
+					log.Printf("[WS] AddDeliveryReceipt error: %v", err)
+					continue
+				}
+
+				// Nâng cấp tiến cấp
+				newStatus, err := mc.MessageService.AdvanceStatus(msgOID, models.StatusStageReceived)
+				if err != nil {
+					// Không nâng thêm được (có thể có race) -> thôi, khỏi notify
+					continue
+				}
+
+				// Lấy sender để notify
+				var msg models.Message
+				_ = mc.MessageService.DB.Collection("messages").
+					FindOne(context.TODO(), bson.M{"_id": msgOID}).Decode(&msg)
+
+				payload := map[string]interface{}{
+					"type":        "message_status_update",
+					"messageId":   mid,
+					"status":      string(newStatus),
+					"statusStage": int(models.StatusStageReceived), // ✅ số
+					"userId":      uid,
+					"channelId":   cid,
+				}
+				mc.WebRTCController.NotifyUser(msg.SenderID.Hex(), payload)
+				continue
+
+			case "message_read":
+				mid, _ := raw["messageId"].(string)
+				cid, _ := raw["channelId"].(string)
+				uid, _ := raw["userId"].(string)
+				if mid == "" || cid == "" || uid == "" {
+					continue
+				}
+				msgOID, err1 := primitive.ObjectIDFromHex(mid)
+				chanOID, err2 := primitive.ObjectIDFromHex(cid)
+				userOID, err3 := primitive.ObjectIDFromHex(uid)
+				if err1 != nil || err2 != nil || err3 != nil {
+					continue
+				}
+
+				// ĐỌC MSG HIỆN TẠI ĐỂ GATE
+				var cur models.Message
+				if err := mc.MessageService.DB.Collection("messages").
+					FindOne(context.TODO(), bson.M{"_id": msgOID}).Decode(&cur); err != nil {
+					continue
+				}
+				// Nếu đã >= Received thì bỏ qua (tránh notify lặp)
+				if int(cur.StatusStage) >= int(models.StatusStageSeen) {
+					continue
+				}
+
+				// Lưu delivery (có thể vẫn bị gọi trùng nhưng không sao)
+				if err := mc.MessageService.AddReadReceipt(msgOID, chanOID, userOID); err != nil {
+					log.Printf("[WS] AddDeliveryReceipt error: %v", err)
+					continue
+				}
+
+				// Nâng cấp tiến cấp
+				newStatus, err := mc.MessageService.AdvanceStatus(msgOID, models.StatusStageSeen)
+				if err != nil {
+					// Không nâng thêm được (có thể có race) -> thôi, khỏi notify
+					continue
+				}
+
+				// Lấy sender để notify
+				var msg models.Message
+				_ = mc.MessageService.DB.Collection("messages").
+					FindOne(context.TODO(), bson.M{"_id": msgOID}).Decode(&msg)
+
+				// Notify sender (nếu online)
+				payload := map[string]interface{}{
+					"type":        "message_status_update",
+					"messageId":   mid,
+					"status":      string(newStatus),
+					"statusStage": int(models.StatusStageSeen), // "Đã xem"
+					"userId":      uid,
+					"channelId":   cid,
+				}
+				mc.WebRTCController.NotifyUser(msg.SenderID.Hex(), payload)
+				continue
+			} // end switch t
+		} // end if t
+
 		// Giải mã tin nhắn nhận được
 		var incomingMessage struct {
-			ChannelID   string              `json:"channelId"`
-			SenderID    string              `json:"senderId"`
-			Content     string              `json:"content"`
-			MessageType string              `json:"messageType"`
-			ReplyTo     *string             `json:"replyTo"`
-			Attachments []models.Attachment `json:"attachments"`
+			ChannelID       string              `json:"channelId"`
+			SenderID        string              `json:"senderId"`
+			Content         string              `json:"content"`
+			MessageType     string              `json:"messageType"`
+			ReplyTo         *string             `json:"replyTo"`
+			Attachments     []models.Attachment `json:"attachments"`
+			ClientMessageID string              `json:"clientMessageId"`
 		}
 		if err := json.Unmarshal(msg, &incomingMessage); err != nil {
 			log.Printf("Lỗi giải mã tin nhắn: %v", err)
@@ -205,6 +320,7 @@ func (mc *MessageController) HandleWebSocket(ctx *gin.Context) {
 			replyToOID,
 			incomingMessage.Attachments,
 		)
+		_, _ = mc.MessageService.AdvanceStatus(message.ID, models.StatusStageSent)
 		if err != nil {
 			log.Printf("Lỗi gửi tin nhắn: %v", err)
 			continue
@@ -247,21 +363,23 @@ func (mc *MessageController) HandleWebSocket(ctx *gin.Context) {
 		}
 
 		response := map[string]interface{}{
-			"type":         "message_new",
-			"id":           message.ID.Hex(),
-			"content":      message.Content,
-			"timestamp":    message.Timestamp,
-			"messageType":  message.MessageType,
-			"senderId":     incomingMessage.SenderID,
-			"senderName":   sender.Name,
-			"senderAvatar": "http://localhost:8080" + sender.Avatar,
-			"status":       message.Status,
-			"recalled":     message.Recalled,
-			"url":          message.URL,
-			"fileId":       message.FileID,
-			"channelId":    message.ChannelID.Hex(),
-			"replyTo":      replyPreview,
-			"attachments":  message.Attachments,
+			"type":            "message_new",
+			"id":              message.ID.Hex(),
+			"clientMessageId": incomingMessage.ClientMessageID,
+			"content":         message.Content,
+			"timestamp":       message.Timestamp,
+			"messageType":     message.MessageType,
+			"senderId":        incomingMessage.SenderID,
+			"senderName":      sender.Name,
+			"senderAvatar":    "http://localhost:8080" + sender.Avatar,
+			"status":          models.MessageStatusSent,
+			"statusStage":     int(models.StatusStageSent),
+			"recalled":        message.Recalled,
+			"url":             message.URL,
+			"fileId":          message.FileID,
+			"channelId":       message.ChannelID.Hex(),
+			"replyTo":         replyPreview,
+			"attachments":     message.Attachments,
 		}
 
 		// Broadcast đến các thành viên kênh

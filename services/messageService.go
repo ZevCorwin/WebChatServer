@@ -78,6 +78,7 @@ func (ms *MessageService) SendMessage(
 			MessageType:    messageType,
 			SenderID:       senderID,
 			Status:         models.MessageStatusSending,
+			StatusStage:    models.StatusStageSending,
 			Recalled:       false,
 			URL:            file.URL, // Không lưu trong Url
 			FileID:         &file.ID, // Liên kết với file ID
@@ -190,6 +191,13 @@ func (ms *MessageService) SendMessage(
 	if err != nil {
 		return nil, err
 	}
+
+	_, _ = ms.DB.Collection("messages").UpdateOne(
+		context.Background(),
+		bson.M{"_id": message.ID},
+		bson.M{"$set": bson.M{"status": models.MessageStatusSent}},
+	)
+	message.Status = models.MessageStatusSent
 
 	return message, nil
 }
@@ -414,4 +422,126 @@ func (ms *MessageService) ToggleReaction(messageID, userID primitive.ObjectID, e
 		return nil, err
 	}
 	return &msg, nil
+}
+
+// AddDeliveryReceipt: lưu delivered receipt (không duplicate)
+func (ms *MessageService) AddDeliveryReceipt(messageID, channelID, userID primitive.ObjectID) error {
+	coll := ms.DB.Collection("messages")
+	now := time.Now()
+
+	// Thêm delivery receipt nếu chưa tồn tại cho user đó
+	dr := models.DeliveryReceipt{
+		UserID:      userID,
+		DeliveredAt: now,
+	}
+	// Điều kiện: push chỉ khi chưa có userId trong deliveryReceipts
+	_, err := coll.UpdateOne(context.Background(),
+		bson.M{"_id": messageID, "deliveryReceipts.userId": bson.M{"$ne": userID}},
+		bson.M{"$push": bson.M{"deliveryReceipts": dr}},
+	)
+	if err != nil && err != mongo.ErrNoDocuments {
+		return err
+	}
+
+	_, _ = ms.AdvanceStatus(messageID, models.StatusStageReceived)
+	return nil
+}
+
+// AddReadReceipt: lưu read receipt và nếu tất cả thành viên đọc -> set Seen (tuỳ lựa chọn)
+func (ms *MessageService) AddReadReceipt(messageID, channelID, userID primitive.ObjectID) error {
+	coll := ms.DB.Collection("messages")
+	now := time.Now()
+
+	rr := models.ReadReceipt{
+		UserID: userID,
+		SeenAt: now,
+	}
+	_, err := coll.UpdateOne(context.Background(),
+		bson.M{"_id": messageID, "readReceipts.userId": bson.M{"$ne": userID}},
+		bson.M{"$push": bson.M{"readReceipts": rr}},
+	)
+	if err != nil && err != mongo.ErrNoDocuments {
+		return err
+	}
+
+	_, _ = ms.AdvanceStatus(messageID, models.StatusStageSeen)
+
+	return nil
+}
+
+func StageToStatus(s models.MessageStatusStage) models.MessageStatus {
+	switch s {
+	case models.StatusStageSeen:
+		return models.MessageStatusSeen
+	case models.StatusStageReceived:
+		return models.MessageStatusReceived
+	case models.StatusStageSent:
+		return models.MessageStatusSent
+	default:
+		return models.MessageStatusSending
+	}
+}
+
+// chỉ nâng cấp khi target > current; atomic bằng filter statusStage {$lt: target}
+func (ms *MessageService) AdvanceStatus(
+	messageID primitive.ObjectID,
+	target models.MessageStatusStage,
+) (models.MessageStatus, error) {
+	ctx := context.Background()
+	coll := ms.DB.Collection("messages")
+
+	// 1) Đọc stage hiện tại (có thể không tồn tại)
+	var cur struct {
+		Status      models.MessageStatus       `bson:"status"`
+		StatusStage *models.MessageStatusStage `bson:"statusStage"` // pointer để biết có field hay chưa
+	}
+	if err := coll.FindOne(ctx, bson.M{"_id": messageID}).Decode(&cur); err != nil {
+		return "", err
+	}
+
+	// Nếu chưa có field statusStage, coi như đang ở SENDING (0) hoặc SENT (1) tùy logic bạn muốn.
+	// Ở đây mình chọn nếu chưa có thì lấy từ label hiện có; fallback = SENT (1).
+	curStage := models.StatusStageSent
+	if cur.StatusStage != nil {
+		curStage = *cur.StatusStage
+	} else {
+		// thử suy từ status chuỗi
+		switch cur.Status {
+		case models.MessageStatusSending:
+			curStage = models.StatusStageSending
+		case models.MessageStatusSent:
+			curStage = models.StatusStageSent
+		case models.MessageStatusReceived:
+			curStage = models.StatusStageReceived
+		case models.MessageStatusSeen:
+			curStage = models.StatusStageSeen
+		default:
+			curStage = models.StatusStageSent
+		}
+	}
+
+	// 2) Nếu target <= current → không nâng, trả về label hiện tại
+	if int(target) <= int(curStage) {
+		// Đảm bảo luôn trả label đúng theo stage hiện tại (kể cả khi label cũ sai)
+		return StageToStatus(curStage), nil
+	}
+
+	// 3) Nâng stage + set label khớp stage
+	newStr := StageToStatus(target)
+
+	// Dùng filter _id thôi (đã check logic ở trên), tránh miss do thiếu field/so sánh kiểu
+	_, err := coll.UpdateOne(
+		ctx,
+		bson.M{"_id": messageID},
+		bson.M{
+			"$set": bson.M{
+				"statusStage": target,
+				"status":      newStr,
+			},
+		},
+	)
+	if err != nil {
+		return "", err
+	}
+	return newStr, nil
 }
