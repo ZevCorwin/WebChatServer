@@ -48,6 +48,5 @@ func (fc *FileController) Upload(ctx *gin.Context) {
 		"url":      saved.URL,
 		"size":     saved.FileSize,
 		"fileType": saved.FileType,
-		// "mime":   ... // nếu muốn trả thêm, có thể detect ở FileService và thêm field
 	})
 }

@@ -123,6 +123,44 @@ func (mc *MessageController) HandleWebSocket(ctx *gin.Context) {
 		}
 		log.Printf("Received message from userID %s: %s", userID, string(msg))
 
+		var raw map[string]interface{}
+		if err := json.Unmarshal(msg, &raw); err == nil {
+			// Nếu client gửi event typing: { type: "typing", channelId: "...", senderId: "...", isTyping: true/false, senderName?: "..."}
+			if t, ok := raw["type"].(string); ok && t == "typing" {
+				chanIDStr, _ := raw["channelId"].(string)
+				senderIDStr, _ := raw["senderId"].(string)
+				isTyping, _ := raw["isTyping"].(bool)
+				senderName, _ := raw["senderName"].(string) // optional
+
+				if chanIDStr == "" {
+					// thiếu channel -> bỏ qua
+					continue
+				}
+
+				cid, err := primitive.ObjectIDFromHex(chanIDStr)
+				if err != nil {
+					log.Printf("[HandleWebSocket] Invalid channelId in typing event: %v", err)
+					continue
+				}
+
+				resp := map[string]interface{}{
+					"type":      "typing",
+					"channelId": chanIDStr,
+					"senderId":  senderIDStr,
+					"isTyping":  isTyping,
+				}
+				// nếu có senderName gửi kèm thì kèm luôn (giúp hiển thị tên nhanh ở client)
+				if senderName != "" {
+					resp["senderName"] = senderName
+				}
+
+				// Broadcast tới tất cả member trong channel
+				mc.WebRTCController.BroadcastMessage(cid, resp)
+				// Không lưu DB, không tiếp tục xử lý gửi như tin nhắn
+				continue
+			}
+		}
+
 		// Giải mã tin nhắn nhận được
 		var incomingMessage struct {
 			ChannelID   string              `json:"channelId"`
