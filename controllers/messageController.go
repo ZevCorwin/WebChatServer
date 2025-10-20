@@ -110,6 +110,7 @@ func (mc *MessageController) HandleWebSocket(ctx *gin.Context) {
 	mc.WebRTCController.Connections[userID] = conn
 	log.Printf("Stored connection for userID %s: %p", userID, conn)
 	mc.Mutex.Unlock()
+	mc.WebRTCController.OnUserConnected(userID)
 
 	for {
 		// Đọc tin nhắn từ WebSocket
@@ -118,7 +119,9 @@ func (mc *MessageController) HandleWebSocket(ctx *gin.Context) {
 			log.Printf("WebSocket read error for userID %s: %v", userID, err)
 			mc.Mutex.Lock()
 			delete(mc.Clients, conn)
+			delete(mc.WebRTCController.Connections, userID)
 			mc.Mutex.Unlock()
+			mc.WebRTCController.OnUserDisconnected(userID)
 			break
 		}
 		log.Printf("Received message from userID %s: %s", userID, string(msg))
