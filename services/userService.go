@@ -58,6 +58,16 @@ func (us *UserService) Register(user models.User) (*models.User, error) {
 	user.AccountCreatedDate = time.Now()
 	user.Status = models.StatusOffline
 
+	if user.Role == "" {
+		user.Role = models.RoleUser
+	}
+	if user.BlockedByUsers == nil {
+		user.BlockedByUsers = []string{}
+	}
+	if user.BlockedUsers == nil {
+		user.BlockedUsers = []string{}
+	}
+
 	// Gán ảnh đại diện mặc định nếu không có
 	defaultAvatar := os.Getenv("DEFAULT_AVATAR_URL")
 	if defaultAvatar == "" {
@@ -79,15 +89,26 @@ func (us *UserService) Register(user models.User) (*models.User, error) {
 
 // GenerateJWT tạo JWT cho người dùng
 func (us *UserService) GenerateJWT(userID primitive.ObjectID) (string, error) {
-	expirationHours, err := strconv.Atoi(os.Getenv("JWT_EXPIRATION_HOURS"))
-	if err != nil || expirationHours <= 0 {
-		expirationHours = 24 // Mặc định 24 giờ
+	// nạp user để lấy role & perms
+	var u models.User
+	if err := us.DB.Collection("users").FindOne(context.Background(), bson.M{"_id": userID}).Decode(&u); err != nil {
+		return "", err
+	}
+
+	// nếu Role != Admin → loại bỏ toàn bộ perms admin từ RoleIDs (nếu bạn đang map perms theo RoleIDs)
+	// (tuỳ hệ thống, ở đây mình giả sử bạn không nhúng perms vào token; nếu có, hãy lọc trước)
+
+	expirationHours, _ := strconv.Atoi(os.Getenv("JWT_EXPIRATION_HOURS"))
+	if expirationHours <= 0 {
+		expirationHours = 24
 	}
 
 	claims := jwt.MapClaims{
 		"user_id": userID.Hex(),
+		"role":    string(u.Role),
 		"exp":     time.Now().Add(time.Hour * time.Duration(expirationHours)).Unix(),
 	}
+
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	secret := os.Getenv("JWT_SECRET")
 	return token.SignedString([]byte(secret))
@@ -285,6 +306,7 @@ func (us *UserService) UpdatePhone(userID primitive.ObjectID, newPhone string) e
 	)
 	return err
 }
+
 func (us *UserService) ChangePassword(userID, oldPass, newPass string) error {
 	col := us.DB.Collection("users")
 
@@ -318,4 +340,43 @@ func (us *UserService) ChangePassword(userID, oldPass, newPass string) error {
 	}
 
 	return nil
+}
+
+// LockUser: until == nil → khóa vĩnh viễn (adminLocked=true)
+//
+//	until != nil → khóa tạm (adminLocked=false, lockedUntil=until.UTC())
+func (us *UserService) LockUser(targetID, adminID primitive.ObjectID, until *time.Time, reason string) error {
+	up := bson.M{
+		"lockReason": reason,
+		"lockedBy":   adminID,
+	}
+	if until == nil {
+		up["adminLocked"] = true
+		up["lockedUntil"] = nil
+	} else {
+		up["adminLocked"] = false
+		up["lockedUntil"] = until.UTC()
+	}
+	_, err := us.DB.Collection("users").UpdateByID(context.TODO(), targetID, bson.M{"$set": up})
+	return err
+}
+
+func (us *UserService) UnlockUser(targetID primitive.ObjectID) error {
+	_, err := us.DB.Collection("users").UpdateByID(context.TODO(), targetID, bson.M{"$set": bson.M{
+		"adminLocked": false,
+		"lockedUntil": nil,
+		"lockReason":  "",
+		"lockedBy":    nil,
+	}})
+	return err
+}
+
+// services/userService.go (ví dụ)
+func (us *UserService) GetUserByObjectID(id primitive.ObjectID) (*models.User, error) {
+	var u models.User
+	err := us.DB.Collection("users").FindOne(context.TODO(), bson.M{"_id": id}).Decode(&u)
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
 }

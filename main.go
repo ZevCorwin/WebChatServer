@@ -3,6 +3,7 @@ package main
 import (
 	"chat-app-backend/config"
 	"chat-app-backend/controllers"
+	"chat-app-backend/middleware"
 	"chat-app-backend/routes"
 	"chat-app-backend/services"
 	"github.com/gin-contrib/cors"
@@ -18,6 +19,7 @@ func main() {
 	cfg := config.LoadConfig()
 
 	// --- Services ---
+	userService := services.NewUserService()
 	messageService := services.NewMessageService()
 	channelService := services.NewChannelService()
 
@@ -27,6 +29,11 @@ func main() {
 	// --- Controllers ---
 	messageController := controllers.NewMessageController(messageService, channelService, webrtcController)
 	channelController := controllers.NewChannelController(channelService, webrtcController)
+	adminController := controllers.NewAdminController(userService)
+	acl := services.NewACLService()
+	us := services.NewUserService()
+
+	lockMw := middleware.MakeLockCheckMiddleware(userService)
 
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
@@ -44,7 +51,7 @@ func main() {
 	}))
 
 	// --- Router (gom routes trong index.go) ---
-	routes.SetupRouter(router, messageController, channelController)
+	routes.SetupRouter(router, messageController, channelController, adminController, lockMw, acl, us)
 
 	// Chỉ serve folder /uploads khi STORAGE_PROVIDER=local (để test local)
 	if os.Getenv("STORAGE_PROVIDER") == "" || os.Getenv("STORAGE_PROVIDER") == "local" {

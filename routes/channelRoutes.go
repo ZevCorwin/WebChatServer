@@ -3,12 +3,13 @@ package routes
 import (
 	"chat-app-backend/controllers"
 	"chat-app-backend/middleware"
+	"chat-app-backend/services"
 	"github.com/gin-gonic/gin"
 )
 
-func SetupChannelRoutes(router *gin.Engine, channelController *controllers.ChannelController) {
+func SetupChannelRoutes(router *gin.Engine, channelController *controllers.ChannelController, us *services.UserService, lockMw gin.HandlerFunc) {
 	// Group routes cho channels
-	channelRoutes := router.Group("/api/channels", middleware.AuthMiddleware(), middleware.CurrentUserMiddleware())
+	channelRoutes := router.Group("/api/channels", middleware.AuthMiddleware(), middleware.CurrentUserMiddleware(us), lockMw)
 	{
 		channelRoutes.POST("", channelController.CreateChannelHandler)
 		channelRoutes.PUT("/:channelID/members/:memberID", channelController.AddMemberHandler)

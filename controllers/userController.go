@@ -3,6 +3,7 @@ package controllers
 import (
 	"chat-app-backend/models"
 	"chat-app-backend/services"
+	"chat-app-backend/utils"
 	"context"
 	"fmt"
 	"github.com/gin-gonic/gin"
@@ -11,6 +12,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 )
 
 // UserController chứa các phương thức xử lý yêu cầu của người dùng
@@ -98,6 +100,30 @@ func (uc *UserController) LoginHandler(ctx *gin.Context) {
 	if !uc.UserService.CheckPasswordHash(loginData.Password, user.Password) {
 		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Mật khẩu không đúng"})
 		return
+	}
+
+	// Tự mở nếu quá hạn
+	utils.AutoUnlockIfExpired(uc.UserService.DB, &user)
+
+	if user.IsLocked() {
+		var until string
+		if user.LockedUntil != nil {
+			until = user.LockedUntil.Format(time.RFC3339)
+		}
+		ctx.JSON(http.StatusLocked, gin.H{
+			"error":       "Tài khoản đã bị khoá",
+			"lockedUntil": until,
+			"reason":      user.LockReason,
+		})
+		return
+	}
+
+	if user.Role == "" {
+		user.Role = models.RoleUser
+		_, _ = collection.UpdateOne(context.Background(),
+			bson.M{"_id": user.ID},
+			bson.M{"$set": bson.M{"role": user.Role}},
+		)
 	}
 
 	// Tạo JWT token

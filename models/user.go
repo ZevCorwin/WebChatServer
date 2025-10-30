@@ -28,9 +28,8 @@ const (
 	GenderFemale
 	GenderOther
 
-	RoleUser      Role = "Người dùng"
-	RoleTeamLead  Role = "Trưởng nhóm"
-	RoleSubLeader Role = "Phó nhóm"
+	RoleUser  Role = "Người dùng"
+	RoleAdmin Role = "Quản trị viên"
 
 	StatusOnline  Status = "Online"
 	StatusOffline Status = "Offline"
@@ -50,27 +49,45 @@ func (g Gender) String() string {
 
 // User là cấu trúc dữ liệu đại diện cho người dùng
 type User struct {
-	ID                 primitive.ObjectID `json:"id" bson:"_id,omitempty"`
-	Name               string             `json:"name" bson:"name"`
-	Email              string             `json:"email" bson:"email"`
-	Phone              string             `json:"phone" bson:"phone"`
-	Password           string             `json:"password" bson:"password"`
-	Address            string             `json:"address" bson:"address"`
-	BirthDate          string             `json:"birthDate" bson:"birthDate"`
-	Gender             Gender             `json:"gender" bson:"gender"`
-	Avatar             string             `json:"avatar" bson:"avatar"`
-	CoverPhoto         string             `json:"coverPhoto" bson:"coverPhoto"`
-	Role               Role               `json:"role" bson:"role"`
-	Status             Status             `json:"status" bson:"status"`
-	LastOnlineTime     time.Time          `json:"lastOnlineTime" bson:"lastOnlineTime"`
-	MaritalStatus      MaritalStatus      `json:"maritalStatus" bson:"maritalStatus"`
-	ConnectedWith      *string            `json:"connectedWith" bson:"connectedWith,omitempty"` // Nullable
-	BlockedByUsers     []string           `json:"blockedByUsers" bson:"blockedByUsers"`
-	BlockedUsers       []string           `json:"blockedUsers" bson:"blockedUsers"`
-	BlockType          BlockType          `json:"blockType" bson:"blockType"`
-	AccountCreatedDate time.Time          `json:"accountCreatedDate" bson:"accountCreatedDate"`
-	AdminLocked        bool               `json:"adminLocked" bson:"adminLocked"`
+	ID                 primitive.ObjectID   `json:"id" bson:"_id,omitempty"`
+	Name               string               `json:"name" bson:"name"`
+	Email              string               `json:"email" bson:"email"`
+	Phone              string               `json:"phone" bson:"phone"`
+	Password           string               `json:"password" bson:"password"`
+	Address            string               `json:"address" bson:"address"`
+	BirthDate          string               `json:"birthDate" bson:"birthDate"`
+	Gender             Gender               `json:"gender" bson:"gender"`
+	Avatar             string               `json:"avatar" bson:"avatar"`
+	CoverPhoto         string               `json:"coverPhoto" bson:"coverPhoto"`
+	Role               Role                 `json:"role" bson:"role"`
+	RoleIDs            []primitive.ObjectID `bson:"roleIds,omitempty" json:"roleIds,omitempty"`
+	Status             Status               `json:"status" bson:"status"`
+	LastOnlineTime     time.Time            `json:"lastOnlineTime" bson:"lastOnlineTime"`
+	MaritalStatus      MaritalStatus        `json:"maritalStatus" bson:"maritalStatus"`
+	ConnectedWith      *string              `json:"connectedWith" bson:"connectedWith,omitempty"` // Nullable
+	BlockedByUsers     []string             `json:"blockedByUsers" bson:"blockedByUsers"`
+	BlockedUsers       []string             `json:"blockedUsers" bson:"blockedUsers"`
+	BlockType          BlockType            `json:"blockType" bson:"blockType"`
+	AccountCreatedDate time.Time            `json:"accountCreatedDate" bson:"accountCreatedDate"`
+	AdminLocked        bool                 `json:"adminLocked" bson:"adminLocked"`
+	LockedUntil        *time.Time           `json:"lockedUntil,omitempty" bson:"lockedUntil,omitempty"` // nil: không set hạn
+	LockReason         string               `json:"lockReason,omitempty" bson:"lockReason,omitempty"`
+	LockedBy           *primitive.ObjectID  `json:"lockedBy,omitempty" bson:"lockedBy,omitempty"`
+	StrikeCount        int                  `json:"strikeCount,omitempty" bson:"strikeCount,omitempty"`
 }
 
 var db *mongo.Database
 var Validate = validator.New()
+
+func (u *User) IsLocked() bool {
+	if u == nil {
+		return false
+	}
+	if u.AdminLocked {
+		return true
+	}
+	if u.LockedUntil != nil && time.Now().Before(*u.LockedUntil) {
+		return true
+	}
+	return false
+}

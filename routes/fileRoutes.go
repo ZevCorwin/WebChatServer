@@ -2,13 +2,14 @@ package routes
 
 import (
 	"chat-app-backend/controllers"
+	"chat-app-backend/middleware"
 	"chat-app-backend/services"
 	"log"
 
 	"github.com/gin-gonic/gin"
 )
 
-func SetupFileRoutes(r *gin.Engine) {
+func SetupFileRoutes(r *gin.Engine, us *services.UserService, lockMw gin.HandlerFunc) {
 	fs, err := services.GetDefaultFileService()
 	if err != nil {
 		// nếu provider không khởi được, log và panic/exit để dev biết
@@ -17,5 +18,5 @@ func SetupFileRoutes(r *gin.Engine) {
 	fc := controllers.NewFileController(fs)
 
 	// Upload
-	r.POST("/uploads", fc.Upload)
+	r.POST("/uploads", fc.Upload, middleware.AuthMiddleware(), middleware.CurrentUserMiddleware(us), lockMw)
 }

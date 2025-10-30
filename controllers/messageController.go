@@ -17,6 +17,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 )
 
 // Định nghĩa upgrader cho WebSocket
@@ -94,6 +95,30 @@ func (mc *MessageController) HandleWebSocket(ctx *gin.Context) {
 		return
 	}
 	log.Printf("Authenticated userID: %s", userID)
+
+	oid, err := primitive.ObjectIDFromHex(userID)
+	if err != nil {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "Invalid user id"})
+		return
+	}
+	var user models.User
+	if err := mc.MessageService.DB.Collection("users").
+		FindOne(context.TODO(), bson.M{"_id": oid}).Decode(&user); err != nil {
+		ctx.JSON(http.StatusUnauthorized, gin.H{"error": "User not found"})
+		return
+	}
+	if user.IsLocked() {
+		var until string
+		if user.LockedUntil != nil {
+			until = user.LockedUntil.Format(time.RFC3339)
+		}
+		ctx.JSON(http.StatusLocked, gin.H{
+			"error":       "Account locked",
+			"lockedUntil": until,
+			"reason":      user.LockReason,
+		})
+		return
+	}
 
 	conn, err := upgrader.Upgrade(ctx.Writer, ctx.Request, nil)
 	if err != nil {

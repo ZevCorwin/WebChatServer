@@ -2,16 +2,17 @@ package routes
 
 import (
 	"chat-app-backend/controllers"
+	"chat-app-backend/middleware"
 	"chat-app-backend/services"
 	"github.com/gin-gonic/gin"
 )
 
 // SetupFriendRoutes sets up friend-related routes.
-func SetupFriendRoutes(router *gin.Engine) {
+func SetupFriendRoutes(router *gin.Engine, us *services.UserService, lockMw gin.HandlerFunc) {
 	friendService := services.NewFriendService()
 	friendController := controllers.NewFriendController(friendService)
 
-	friendRoute := router.Group("/api/friends")
+	friendRoute := router.Group("/api/friends", middleware.AuthMiddleware(), middleware.CurrentUserMiddleware(us), lockMw)
 	{
 		friendRoute.POST("/:userID/send/:friendID", friendController.SendFriendRequest)
 		friendRoute.DELETE("/:userID/cancel/:friendID", friendController.CancelFriendRequest)
