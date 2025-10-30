@@ -11,6 +11,7 @@ import (
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"os"
 	"sort"
+	"strings"
 	"time"
 )
 
@@ -166,14 +167,19 @@ func (chs *ChatHistoryService) GetChatHistoryByUserID(userID primitive.ObjectID)
 				bson.M{"channelID": uc.ChannelID, "userID": bson.M{"$ne": userID}},
 			).Decode(&otherUC); err == nil {
 				var other models.User
-				if err := usersColl.FindOne(context.Background(), bson.M{"_id": otherUC.UserID}).Decode(&other); err == nil {
-					userName = other.Name
-					userAvatar = base + other.Avatar
+				if strings.HasPrefix(other.Avatar, "http://") || strings.HasPrefix(other.Avatar, "https://") {
+					userAvatar = other.Avatar // Dùng luôn vì đã là URL tuyệt đối
+				} else if other.Avatar != "" {
+					userAvatar = base + other.Avatar // Chỉ nối nếu là URL tương đối và không rỗng
 				}
 			}
 		} else {
 			channelName = channel.ChannelName
-			channelAvatar = base + channel.Avatar
+			if strings.HasPrefix(channel.Avatar, "http://") || strings.HasPrefix(channel.Avatar, "https://") {
+				channelAvatar = channel.Avatar // Dùng luôn
+			} else if channel.Avatar != "" {
+				channelAvatar = base + channel.Avatar // Nối
+			}
 		}
 
 		// 5) Xác định lastMessageContent & lastActive
