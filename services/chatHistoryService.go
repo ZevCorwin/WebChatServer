@@ -169,20 +169,12 @@ func (chs *ChatHistoryService) GetChatHistoryByUserID(userID primitive.ObjectID)
 				var other models.User
 				if err := usersColl.FindOne(context.Background(), bson.M{"_id": otherUC.UserID}).Decode(&other); err == nil {
 					userName = other.Name
-					if strings.HasPrefix(other.Avatar, "http://") || strings.HasPrefix(other.Avatar, "https://") {
-						userAvatar = other.Avatar // Dùng luôn vì đã là URL tuyệt đối
-					} else if other.Avatar != "" {
-						userAvatar = base + other.Avatar // Chỉ nối nếu là URL tương đối và không rỗng
-					}
+					userAvatar = fullAvatarURL(other.Avatar)
 				}
 			}
 		} else {
 			channelName = channel.ChannelName
-			if strings.HasPrefix(channel.Avatar, "http://") || strings.HasPrefix(channel.Avatar, "https://") {
-				channelAvatar = channel.Avatar // Dùng luôn
-			} else if channel.Avatar != "" {
-				channelAvatar = base + channel.Avatar // Nối
-			}
+			channelAvatar = fullAvatarURL(channel.Avatar)
 		}
 
 		// 5) Xác định lastMessageContent & lastActive

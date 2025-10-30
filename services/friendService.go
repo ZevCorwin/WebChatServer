@@ -156,13 +156,12 @@ func (fs *FriendService) GetFriends(userID primitive.ObjectID) ([]map[string]int
 			return nil, err
 		}
 
-		baseUrl := "http://localhost:8080"
 		listFriendItem := map[string]interface{}{
 			"friendID":     friend.UserID,
 			"friendType":   models.FriendTypeFriend,
 			"friendName":   user.Name,
 			"friendPhone":  user.Phone,
-			"friendAvatar": baseUrl + user.Avatar,
+			"friendAvatar": fullAvatarURL(user.Avatar),
 			"requestDate":  friend.RequestSentData,
 		}
 		result = append(result, listFriendItem)
@@ -229,11 +228,11 @@ func (fs *FriendService) GetFriendRequests(userID primitive.ObjectID) ([]map[str
 			}
 			return nil, err
 		}
-		baseUrl := "http://localhost:8080"
+
 		listFriendRequestItem := map[string]interface{}{
 			"friendID":     request.UserID,
 			"friendName":   user.Name,
-			"friendAvatar": baseUrl + user.Avatar,
+			"friendAvatar": fullAvatarURL(user.Avatar),
 			"requestID":    request.ID,
 			"requestDate":  request.RequestSentData,
 		}

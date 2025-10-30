@@ -488,10 +488,21 @@ func (cs *ChannelService) ListBlockedMembers(channel *models.Channel) ([]map[str
 
 		log.Printf("[ListBlockedMembers] ✅ Tìm thấy user: %+v", user)
 
+		avatarURL := user.Avatar
+		if !strings.HasPrefix(user.Avatar, "http://") && !strings.HasPrefix(user.Avatar, "https://") && user.Avatar != "" {
+			// Chỉ nối 'base' nếu nó là path tương đối (ví dụ: /uploads/...)
+			// Dùng base từ env hoặc fallback
+			base := os.Getenv("PUBLIC_BASE_URL")
+			if base == "" {
+				base = "http://localhost:8080"
+			}
+			avatarURL = base + user.Avatar
+		}
+
 		blocked = append(blocked, map[string]interface{}{
 			"memberId": user.ID.Hex(),
 			"name":     user.Name,
-			"avatar":   "http://localhost:8080" + user.Avatar,
+			"avatar":   avatarURL,
 			"phone":    user.Phone,
 		})
 	}
