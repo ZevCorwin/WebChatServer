@@ -400,13 +400,22 @@ func (chs *ChatHistoryService) GetMessages(channelID, viewerID primitive.ObjectI
 }
 
 // trả về absolute URL cho avatar (lấy từ env PUBLIC_BASE_URL, mặc định localhost)
+// Sửa lại hàm này ở cuối file
 func fullAvatarURL(path string) string {
 	if path == "" {
-		return ""
+		return "" // Hoặc trả về một avatar mặc định
 	}
+
+	// 1. Nếu đã là URL tuyệt đối (http:// hoặc https://), dùng luôn
+	if strings.HasPrefix(path, "http://") || strings.HasPrefix(path, "https://") {
+		return path
+	}
+
+	// 2. Nếu là URL tương đối (ví dụ: /uploads/avatar.jpg), mới nối chuỗi
 	base := os.Getenv("PUBLIC_BASE_URL")
 	if base == "" {
 		base = "http://localhost:8080"
 	}
+
 	return base + path
 }
