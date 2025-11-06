@@ -12,6 +12,7 @@ func SetupRouter(
 	messageController *controllers.MessageController,
 	channelController *controllers.ChannelController,
 	ac *controllers.AdminController,
+	friendController *controllers.FriendController,
 	lockMw gin.HandlerFunc,
 	acl *services.ACLService,
 	us *services.UserService,
@@ -37,5 +38,5 @@ func SetupRouter(
 	SetupFileRoutes(router, us, lockMw)
 
 	// Cấu hình routes cho Friend
-	SetupFriendRoutes(router, us, lockMw)
+	SetupFriendRoutes(router, friendController, us, lockMw)
 }

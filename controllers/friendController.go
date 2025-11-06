@@ -10,11 +10,15 @@ import (
 )
 
 type FriendController struct {
-	FriendService *services.FriendService
+	FriendService    *services.FriendService
+	WebRTCController *WebRTCController
 }
 
-func NewFriendController(friendService *services.FriendService) *FriendController {
-	return &FriendController{FriendService: friendService}
+func NewFriendController(friendService *services.FriendService, webrtcController *WebRTCController) *FriendController {
+	return &FriendController{
+		FriendService:    friendService,
+		WebRTCController: webrtcController,
+	}
 }
 
 func parseObjectIDs(ctx *gin.Context) (primitive.ObjectID, primitive.ObjectID, error) {

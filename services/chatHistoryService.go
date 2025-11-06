@@ -133,11 +133,6 @@ func (chs *ChatHistoryService) GetChatHistoryByUserID(userID primitive.ObjectID)
 	}
 	defer cur.Close(context.Background())
 
-	base := os.Getenv("PUBLIC_BASE_URL")
-	if base == "" {
-		base = "http://localhost:8080"
-	}
-
 	var items []map[string]interface{}
 
 	for cur.Next(context.Background()) {

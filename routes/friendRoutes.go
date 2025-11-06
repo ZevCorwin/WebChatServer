@@ -8,9 +8,7 @@ import (
 )
 
 // SetupFriendRoutes sets up friend-related routes.
-func SetupFriendRoutes(router *gin.Engine, us *services.UserService, lockMw gin.HandlerFunc) {
-	friendService := services.NewFriendService()
-	friendController := controllers.NewFriendController(friendService)
+func SetupFriendRoutes(router *gin.Engine, friendController *controllers.FriendController, us *services.UserService, lockMw gin.HandlerFunc) {
 
 	friendRoute := router.Group("/api/friends", middleware.AuthMiddleware(), middleware.CurrentUserMiddleware(us), lockMw)
 	{

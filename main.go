@@ -20,8 +20,11 @@ func main() {
 
 	// --- Services ---
 	userService := services.NewUserService()
+	statsService := services.NewStatsService()
+	roleService := services.NewRoleService()
 	messageService := services.NewMessageService()
 	channelService := services.NewChannelService()
+	friendService := services.NewFriendService()
 
 	// --- WebRTCController ---
 	webrtcController := controllers.NewWebRTCController(messageService, channelService)
@@ -29,7 +32,9 @@ func main() {
 	// --- Controllers ---
 	messageController := controllers.NewMessageController(messageService, channelService, webrtcController)
 	channelController := controllers.NewChannelController(channelService, webrtcController)
-	adminController := controllers.NewAdminController(userService)
+	adminController := controllers.NewAdminController(userService, statsService, roleService)
+	friendController := controllers.NewFriendController(friendService, webrtcController)
+
 	acl := services.NewACLService()
 	us := services.NewUserService()
 
@@ -51,7 +56,7 @@ func main() {
 	}))
 
 	// --- Router (gom routes trong index.go) ---
-	routes.SetupRouter(router, messageController, channelController, adminController, lockMw, acl, us)
+	routes.SetupRouter(router, messageController, channelController, adminController, friendController, lockMw, acl, us)
 
 	// Chỉ serve folder /uploads khi STORAGE_PROVIDER=local (để test local)
 	if os.Getenv("STORAGE_PROVIDER") == "" || os.Getenv("STORAGE_PROVIDER") == "local" {
