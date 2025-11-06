@@ -24,6 +24,8 @@ func SetupUserRoutes(router *gin.Engine) {
 	router.POST("/register/verify-otp", authController.VerifyRegisterOTP)
 
 	router.POST("/login", userController.LoginHandler)
+	router.POST("/auth/request-password-otp", authController.RequestPasswordReset)
+	router.POST("/auth/reset-password-with-otp", authController.ResetPasswordWithOTP)
 	router.GET("/users", userController.GetAllUsersHandler)
 	router.GET("/users/:id", userController.GetUserByIdHandler)
 	router.PUT("/users/:id", userController.UpdateProfileHandler)

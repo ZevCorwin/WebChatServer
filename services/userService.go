@@ -380,3 +380,29 @@ func (us *UserService) GetUserByObjectID(id primitive.ObjectID) (*models.User, e
 	}
 	return &u, nil
 }
+
+// ResetPasswordByEmail tìm user bằng email, hash và cập nhật mật khẩu mới
+func (us *UserService) ResetPasswordByEmail(email string, newPassword string) error {
+	collection := us.DB.Collection("users")
+
+	// 1. Hash mật khẩu mới
+	hashedPassword, err := utils.HashPassword(newPassword)
+	if err != nil {
+		return errors.New("không thể mã hóa mật khẩu mới")
+	}
+
+	// 2. Tìm user bằng email và cập nhật
+	filter := bson.M{"email": email}
+	update := bson.M{"$set": bson.M{"password": hashedPassword}}
+
+	result, err := collection.UpdateOne(context.Background(), filter, update)
+	if err != nil {
+		return err
+	}
+
+	if result.MatchedCount == 0 {
+		return errors.New("không tìm thấy tài khoản nào với email này")
+	}
+
+	return nil
+}

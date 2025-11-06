@@ -195,3 +195,65 @@ func (osv *OTPService) VerifyOTP(purpose models.OTPPurpose, email, code string) 
 	_, _ = collection.DeleteOne(context.Background(), bson.M{"_id": record.ID})
 	return nil
 }
+
+// CreateAndSendPasswordResetOTP tạo OTP và gửi email khôi phục mật khẩu
+func (osv *OTPService) CreateAndSendPasswordResetOTP(email string) error {
+	collection := osv.DB.Collection("otps")
+
+	// 1. Kiểm tra tần suất (giống hệt)
+	var lastOTP models.OTP
+	err := collection.FindOne(context.Background(), bson.M{
+		"email":   email,
+		"purpose": models.OTPPurposePasswordReset, // 👈 Khác
+	}).Decode(&lastOTP)
+
+	if err == nil {
+		if time.Since(lastOTP.CreatedAt) < 30*time.Second {
+			return fmt.Errorf("Bạn chỉ được yêu cầu mã OTP sau 30 giây")
+		}
+	}
+
+	// 2. Tạo mã
+	code, err := osv.generate6Digits()
+	if err != nil {
+		return err
+	}
+
+	// 3. Gửi email (Nội dung khác)
+	appName := os.Getenv("APP_NAME")
+	if appName == "" {
+		appName = "WebChat"
+	}
+	subject := fmt.Sprintf("[%s] Yêu cầu khôi phục mật khẩu", appName)
+	body := fmt.Sprintf(`
+       <div style="font-family: Arial, sans-serif">
+          <h2>Xin chào,</h2>
+          <p>Bạn (hoặc ai đó) đã yêu cầu khôi phục mật khẩu cho tài khoản của bạn.</p>
+          <p>Mã khôi phục của bạn là:</p>
+          <h1 style="letter-spacing: 4px">%s</h1>
+          <p>Mã có hiệu lực trong 10 phút. Nếu bạn không yêu cầu, vui lòng bỏ qua email này.</p>
+          <p>— %s</p>
+       </div>
+    `, code, appName)
+
+	if err := SendEmail(email, subject, body); err != nil {
+		return err // Báo lỗi nếu gửi email thất bại
+	}
+
+	// 4. Lưu OTP (Purpose khác)
+	otp := models.OTP{
+		Email:     email,
+		Code:      code,
+		Purpose:   models.OTPPurposePasswordReset, // 👈 Khác
+		ExpiresAt: time.Now().Add(10 * time.Minute),
+		Attempts:  0,
+		Payload:   nil, // Không cần payload
+		CreatedAt: time.Now(),
+	}
+
+	if _, err := collection.InsertOne(context.Background(), otp); err != nil {
+		return err
+	}
+
+	return nil
+}
